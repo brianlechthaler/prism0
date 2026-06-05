@@ -7,7 +7,8 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
-  port: 8787
+  port: 8787,
+  requestTimeoutMs: 120_000
 };
 
 function createTestApp(store = new RunStore()) {

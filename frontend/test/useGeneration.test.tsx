@@ -5,6 +5,7 @@ import { useGeneration } from "../src/hooks/useGeneration";
 type MockEventSourceInstance = {
   url: string;
   onmessage: ((ev: MessageEvent) => void) | null;
+  onerror: (() => void) | null;
   close: ReturnType<typeof vi.fn>;
 };
 
@@ -13,6 +14,7 @@ const eventSources: MockEventSourceInstance[] = [];
 class MockEventSource {
   url: string;
   onmessage: ((ev: MessageEvent) => void) | null = null;
+  onerror: (() => void) | null = null;
   close = vi.fn();
 
   constructor(url: string) {
@@ -107,6 +109,36 @@ describe("useGeneration", () => {
 
     const closed = eventSources.filter((source) => source.close.mock.calls.length > 0);
     expect(closed.length).toBeGreaterThan(0);
+  });
+
+  it("handles SSE connection errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ runId: "r3" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    );
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    act(() => {
+      source.onerror?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.kind).toBe("error");
+    });
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.message).toContain("Lost connection");
+    }
   });
 
   it("handles server error events", async () => {

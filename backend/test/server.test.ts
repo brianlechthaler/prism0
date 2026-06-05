@@ -22,7 +22,8 @@ describe("createApp", () => {
       openaiApiKey: "k",
       openaiBaseUrl: "https://example.com/v1",
       openaiModel: "m",
-      port: 8787
+      port: 8787,
+      requestTimeoutMs: 120_000
     });
     const server = app.listen(0);
     const addr = server.address();
@@ -39,7 +40,8 @@ describe("createApp", () => {
       openaiApiKey: "k",
       openaiBaseUrl: "https://example.com/v1",
       openaiModel: "m",
-      port: 8787
+      port: 8787,
+      requestTimeoutMs: 120_000
     });
     const server = app.listen(0);
     const addr = server.address();
@@ -55,7 +57,8 @@ describe("createApp", () => {
       openaiApiKey: "k",
       openaiBaseUrl: "https://example.com/v1",
       openaiModel: "m",
-      port: 8787
+      port: 8787,
+      requestTimeoutMs: 120_000
     });
     const server = app.listen(0);
     const addr = server.address();
@@ -71,7 +74,8 @@ describe("createApp", () => {
       openaiApiKey: "k",
       openaiBaseUrl: "https://example.com/v1",
       openaiModel: "m",
-      port: 8787
+      port: 8787,
+      requestTimeoutMs: 120_000
     });
     const server = app.listen(0);
     const addr = server.address();
@@ -99,7 +103,8 @@ describe("startServer", () => {
       openaiApiKey: "k",
       openaiBaseUrl: "https://example.com/v1",
       openaiModel: "m",
-      port: 0
+      port: 0,
+      requestTimeoutMs: 120_000
     });
 
     await new Promise<void>((resolve) => server.once("listening", () => resolve()));

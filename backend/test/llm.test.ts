@@ -23,7 +23,8 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
-  port: 8787
+  port: 8787,
+  requestTimeoutMs: 120_000
 };
 
 describe("llm", () => {
@@ -58,6 +59,111 @@ describe("llm", () => {
     expect(result).toBe("hello");
     expect(reasoning.join("")).toBe("thinking");
     expect(content.join("")).toBe("hello");
+  });
+
+  it("calls onStreamOpen when the stream is created", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: "ok" } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const onStreamOpen = vi.fn();
+    await generateProjectFromIdea(config, "make app", { onStreamOpen });
+    expect(onStreamOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("times out when the model stalls between chunks", async () => {
+    vi.useFakeTimers();
+
+    createMock.mockResolvedValue({
+      [Symbol.asyncIterator]() {
+        let sent = false;
+        return {
+          next() {
+            if (!sent) {
+              sent = true;
+              return Promise.resolve({
+                done: false,
+                value: { choices: [{ delta: { content: "a" } }] }
+              });
+            }
+            return new Promise(() => {});
+          }
+        };
+      }
+    });
+
+    const pending = generateProjectFromIdea(config, "make app");
+    const rejection = expect(pending).rejects.toThrow(/Model stream stalled/i);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rejection;
+
+    vi.useRealTimers();
+  });
+
+  it("times out when the API never opens a stream", async () => {
+    vi.useFakeTimers();
+
+    createMock.mockReturnValue(new Promise(() => {}));
+
+    const pending = generateProjectFromIdea(config, "make app");
+    const rejection = expect(pending).rejects.toThrow(/Model API request timed out/i);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await rejection;
+
+    vi.useRealTimers();
+  });
+
+  it("times out when the model never sends a first chunk", async () => {
+    vi.useFakeTimers();
+
+    createMock.mockResolvedValue({
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            return new Promise(() => {});
+          }
+        };
+      }
+    });
+
+    const pending = generateProjectFromIdea(config, "make app");
+    const rejection = expect(pending).rejects.toThrow(/No response from model within/i);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await rejection;
+
+    vi.useRealTimers();
+  });
+
+  it("enforces a hard stream time limit", async () => {
+    vi.useFakeTimers();
+    const now = vi.spyOn(Date, "now");
+
+    createMock.mockResolvedValue({
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            return Promise.resolve({
+              done: false,
+              value: { choices: [{ delta: { content: "a" } }] }
+            });
+          }
+        };
+      }
+    });
+
+    const pending = generateProjectFromIdea(config, "make app");
+    const rejection = expect(pending).rejects.toThrow(/hard limit/i);
+
+    now.mockReturnValueOnce(0).mockReturnValueOnce(600_001);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejection;
+
+    now.mockRestore();
+    vi.useRealTimers();
   });
 
   it("throws on empty model response", async () => {

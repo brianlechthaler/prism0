@@ -8,6 +8,12 @@ describe("loadConfig", () => {
     expect(cfg.openaiBaseUrl).toBe("https://api.openai.com/v1");
     expect(cfg.openaiModel).toBe("gpt-4.1-mini");
     expect(cfg.port).toBe(8787);
+    expect(cfg.requestTimeoutMs).toBe(120_000);
+  });
+
+  it("accepts request timeout override from env", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", REQUEST_TIMEOUT_MS: "45000" });
+    expect(cfg.requestTimeoutMs).toBe(45_000);
   });
 
   it("accepts overrides from env", () => {

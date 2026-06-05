@@ -5,7 +5,8 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
   OPENAI_MODEL: z.string().min(1).optional(),
-  PORT: z.coerce.number().int().positive().optional()
+  PORT: z.coerce.number().int().positive().optional(),
+  REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional()
 });
 
 export function formatConfigIssues(
@@ -21,6 +22,7 @@ export type AppConfig = {
   openaiBaseUrl: string;
   openaiModel: string;
   port: number;
+  requestTimeoutMs: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig {
@@ -28,7 +30,8 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     OPENAI_API_KEY: cli.apiKey ?? env.OPENAI_API_KEY,
     OPENAI_BASE_URL: cli.baseUrl ?? env.OPENAI_BASE_URL,
     OPENAI_MODEL: cli.model ?? env.OPENAI_MODEL,
-    PORT: cli.port ?? env.PORT
+    PORT: cli.port ?? env.PORT,
+    REQUEST_TIMEOUT_MS: env.REQUEST_TIMEOUT_MS
   };
 
   const parsed = EnvSchema.safeParse(merged);
@@ -47,7 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     openaiApiKey: parsed.data.OPENAI_API_KEY,
     openaiBaseUrl: parsed.data.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
     openaiModel: parsed.data.OPENAI_MODEL ?? "gpt-4.1-mini",
-    port: parsed.data.PORT ?? 8787
+    port: parsed.data.PORT ?? 8787,
+    requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000
   };
 }
 

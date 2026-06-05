@@ -142,27 +142,49 @@ export async function runGeneration(
 
     let streamedChars = 0;
     let streamedReasoningChars = 0;
+    let sawStreamActivity = false;
 
-    const raw = await generateProjectFromIdea(config, idea, {
-      onReasoning: (chunk) => {
-        streamedReasoningChars += chunk.length;
-        if (streamedReasoningChars % 400 < chunk.length) {
+    const heartbeat = setInterval(() => {
+      if (sawStreamActivity) return;
+      store.appendLog(
+        runId,
+        `[${timestamp()}] Still waiting for model response (large models like Nemotron can take minutes, or the endpoint may be down)…`
+      );
+    }, 15_000);
+
+    let raw: string;
+    try {
+      raw = await generateProjectFromIdea(config, idea, {
+        onStreamOpen: () => {
           store.appendLog(
             runId,
-            `[${timestamp()}] Model reasoning stream… ${streamedReasoningChars} chars so far`
+            `[${timestamp()}] Model stream connected; waiting for first token…`
           );
+        },
+        onReasoning: (chunk) => {
+          sawStreamActivity = true;
+          streamedReasoningChars += chunk.length;
+          if (streamedReasoningChars % 400 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model reasoning stream… ${streamedReasoningChars} chars so far`
+            );
+          }
+        },
+        onContent: (chunk) => {
+          sawStreamActivity = true;
+          streamedChars += chunk.length;
+          if (streamedChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model content stream… ${streamedChars} chars received`
+            );
+          }
         }
-      },
-      onContent: (chunk) => {
-        streamedChars += chunk.length;
-        if (streamedChars % 500 < chunk.length) {
-          store.appendLog(
-            runId,
-            `[${timestamp()}] Model content stream… ${streamedChars} chars received`
-          );
-        }
-      }
-    });
+      });
+    } finally {
+      clearInterval(heartbeat);
+    }
 
     store.appendLog(
       runId,

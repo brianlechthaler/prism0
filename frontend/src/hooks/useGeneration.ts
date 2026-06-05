@@ -78,6 +78,13 @@ export function useGeneration() {
         es.close();
       }
     };
+
+    es.onerror = () => {
+      setState((s) =>
+        failGeneration(s, "Lost connection to live progress. Check backend logs and retry.")
+      );
+      es.close();
+    };
   }, []);
 
   return { state, start };

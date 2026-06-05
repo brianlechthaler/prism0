@@ -7,7 +7,8 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
-  port: 8787
+  port: 8787,
+  requestTimeoutMs: 120_000
 };
 
 const validPayload = {
@@ -25,6 +26,7 @@ describe("runGeneration", () => {
   it("completes successful runs", async () => {
     vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
       async (_config, _idea, handlers) => {
+        handlers.onStreamOpen?.();
         handlers.onReasoning?.("r".repeat(401));
         handlers.onContent?.("c".repeat(501));
         return JSON.stringify(validPayload);
@@ -44,10 +46,71 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
     expect(final?.files["index.html"]).toContain("<html>");
+    expect(final?.logs.some((l) => l.includes("Model stream connected"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("Model reasoning stream"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("Model content stream"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("validated step"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("All checks passed"))).toBe(true);
+  });
+
+  it("logs heartbeat messages while waiting for the model", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
+      (_config, _idea, handlers) =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            handlers.onContent?.("ready");
+            resolve(JSON.stringify(validPayload));
+          }, 30_000);
+        })
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    const pending = runGeneration(config, store, run.id, run.idea);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(store.get(run.id)?.logs.some((l) => l.includes("Still waiting for model response"))).toBe(
+      true
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await pending;
+
+    vi.useRealTimers();
+  });
+
+  it("skips heartbeat logs after stream activity begins", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
+      (_config, _idea, handlers) =>
+        new Promise((resolve) => {
+          handlers.onContent?.("started");
+          setTimeout(() => resolve(JSON.stringify(validPayload)), 30_000);
+        })
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    const pending = runGeneration(config, store, run.id, run.idea);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(store.get(run.id)?.logs.some((l) => l.includes("Still waiting for model response"))).toBe(
+      false
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await pending;
+
+    vi.useRealTimers();
   });
 
   it("marks run failed for non-error throwables", async () => {
