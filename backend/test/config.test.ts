@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest";
+import { formatConfigIssues, loadConfig } from "../src/config.js";
+
+describe("loadConfig", () => {
+  it("defaults base URL/model/port", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k" });
+    expect(cfg.openaiApiKey).toBe("k");
+    expect(cfg.openaiBaseUrl).toBe("https://api.openai.com/v1");
+    expect(cfg.openaiModel).toBe("gpt-4.1-mini");
+    expect(cfg.port).toBe(8787);
+  });
+
+  it("accepts overrides from env", () => {
+    const cfg = loadConfig({
+      OPENAI_API_KEY: "k",
+      OPENAI_BASE_URL: "https://example.com/v1",
+      OPENAI_MODEL: "m",
+      PORT: "9999"
+    });
+    expect(cfg.openaiBaseUrl).toBe("https://example.com/v1");
+    expect(cfg.openaiModel).toBe("m");
+    expect(cfg.port).toBe(9999);
+  });
+
+  it("prefers CLI args over env", () => {
+    const cfg = loadConfig(
+      {
+        OPENAI_API_KEY: "env",
+        OPENAI_BASE_URL: "https://env.example/v1",
+        OPENAI_MODEL: "env-model",
+        PORT: "1111"
+      },
+      {
+        apiKey: "cli",
+        baseUrl: "https://cli.example/v1",
+        model: "cli-model",
+        port: 2222
+      }
+    );
+    expect(cfg.openaiApiKey).toBe("cli");
+    expect(cfg.openaiBaseUrl).toBe("https://cli.example/v1");
+    expect(cfg.openaiModel).toBe("cli-model");
+    expect(cfg.port).toBe(2222);
+  });
+
+  it("uses env port when cli port is omitted", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", PORT: "7777" }, { apiKey: "k" });
+    expect(cfg.port).toBe(7777);
+  });
+
+  it("throws on missing api key", () => {
+    expect(() => loadConfig({})).toThrow(/OPENAI_API_KEY/);
+  });
+
+  it("throws on invalid base URL", () => {
+    expect(() => loadConfig({ OPENAI_API_KEY: "k", OPENAI_BASE_URL: "not-a-url" })).toThrow(
+      /OPENAI_BASE_URL/
+    );
+  });
+});
+
+describe("formatConfigIssues", () => {
+  it("labels empty paths as env", () => {
+    expect(formatConfigIssues([{ path: [], message: "root issue" }])).toBe("env: root issue");
+  });
+});
