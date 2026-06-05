@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { AppConfig } from "./config.js";
-import { buildFixPrompt, buildGenerationPrompt } from "./prompts.js";
+import { buildFixPrompt, buildGenerationPrompt, buildJsonFixPrompt } from "./prompts.js";
 import type { GeneratedProject } from "./types.js";
 
 export type StreamHandlers = {
@@ -77,6 +77,20 @@ export async function fixProjectFromValidationErrors(
   return streamProjectCompletion(
     config,
     buildFixPrompt(idea, project, validationError),
+    handlers
+  );
+}
+
+export async function fixInvalidJsonResponse(
+  config: AppConfig,
+  idea: string,
+  invalidResponse: string,
+  parseError: string,
+  handlers: StreamHandlers = {}
+): Promise<string> {
+  return streamProjectCompletion(
+    config,
+    buildJsonFixPrompt(idea, parseError, invalidResponse),
     handlers
   );
 }

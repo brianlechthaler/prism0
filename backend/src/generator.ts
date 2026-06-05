@@ -1,13 +1,52 @@
 import type { AppConfig } from "./config.js";
-import { fixProjectFromValidationErrors, generateProjectFromIdea } from "./llm.js";
+import {
+  fixInvalidJsonResponse,
+  fixProjectFromValidationErrors,
+  generateProjectFromIdea,
+  type StreamHandlers
+} from "./llm.js";
 import { parseGeneratedResponse } from "./parseGenerated.js";
-import { MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
+import { MAX_PARSE_ATTEMPTS, MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
 import type { RunStore } from "./runStore.js";
 import type { GeneratedProject } from "./types.js";
 import { validateGeneratedProject } from "./validateProject.js";
 
 function timestamp(): string {
   return new Date().toISOString();
+}
+
+async function parseProjectWithRetries(
+  config: AppConfig,
+  store: RunStore,
+  runId: string,
+  idea: string,
+  raw: string,
+  handlers: StreamHandlers = {}
+): Promise<GeneratedProject> {
+  let lastError: unknown = new Error("Failed to parse generated project JSON after retries");
+
+  for (let attempt = 1; attempt <= MAX_PARSE_ATTEMPTS; attempt++) {
+    try {
+      return parseGeneratedResponse(raw);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (attempt >= MAX_PARSE_ATTEMPTS) {
+        break;
+      }
+
+      store.appendLog(
+        runId,
+        `[${timestamp()}] JSON parse attempt ${attempt}/${MAX_PARSE_ATTEMPTS} failed; requesting JSON fix from model…`
+      );
+      store.appendLog(runId, `[${timestamp()}] Parse error: ${message}`);
+
+      raw = await fixInvalidJsonResponse(config, idea, raw, message, handlers);
+    }
+  }
+
+  throw lastError;
 }
 
 async function validateProjectWithRetries(
@@ -55,7 +94,17 @@ async function validateProjectWithRetries(
       });
 
       store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
-      project = parseGeneratedResponse(raw);
+      project = await parseProjectWithRetries(config, store, runId, idea, raw, {
+        onContent: (chunk) => {
+          fixStreamChars += chunk.length;
+          if (fixStreamChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model JSON fix stream… ${fixStreamChars} chars received`
+            );
+          }
+        }
+      });
       store.appendLog(
         runId,
         `[${timestamp()}] Fixed project summary: ${project.summary}`
@@ -121,7 +170,17 @@ export async function runGeneration(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing generated JSON project payload…`);
-    let project = parseGeneratedResponse(raw);
+    let project = await parseProjectWithRetries(config, store, runId, idea, raw, {
+      onContent: (chunk) => {
+        streamedChars += chunk.length;
+        if (streamedChars % 500 < chunk.length) {
+          store.appendLog(
+            runId,
+            `[${timestamp()}] Model JSON fix stream… ${streamedChars} chars received`
+          );
+        }
+      }
+    });
     store.appendLog(
       runId,
       `[${timestamp()}] Parsed project summary: ${project.summary}`

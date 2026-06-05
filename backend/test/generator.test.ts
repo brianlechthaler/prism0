@@ -74,6 +74,100 @@ describe("runGeneration", () => {
     expect(final?.error).toContain("api down");
   });
 
+  it("retries JSON parsing with model fixes until payload is valid", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
+    expect(final?.logs.some((l) => l.includes("JSON parse attempt 1/"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("fails after exhausting JSON parse retries", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockResolvedValue("{ still bad }");
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toContain("Failed to parse generated project JSON");
+    expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it("handles non-error JSON parse failures during retries", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const parseSpy = vi.spyOn(await import("../src/parseGenerated.js"), "parseGeneratedResponse");
+    parseSpy.mockImplementationOnce(() => {
+      throw "bad parse";
+    });
+    parseSpy.mockImplementation((raw) => JSON.parse(raw));
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    expect(store.get(run.id)?.status).toBe("done");
+    expect(store.get(run.id)?.logs.some((l) => l.includes("Parse error: bad parse"))).toBe(true);
+    parseSpy.mockRestore();
+  });
+
+  it("retries JSON parsing when validation fix returns invalid JSON", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+
+    let validationCalls = 0;
+    vi.spyOn(validateModule, "validateGeneratedProject").mockImplementation(async () => {
+      validationCalls += 1;
+      if (validationCalls === 1) {
+        throw new Error("lint failed: unused var");
+      }
+      return { lintOutput: "ok", testOutput: "ok" };
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
+    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
   it("retries validation with model fixes until checks pass", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));

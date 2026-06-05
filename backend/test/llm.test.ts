@@ -14,6 +14,7 @@ vi.mock("openai", () => ({
 
 import {
   createOpenAiClient,
+  fixInvalidJsonResponse,
   fixProjectFromValidationErrors,
   generateProjectFromIdea
 } from "../src/llm.js";
@@ -85,5 +86,25 @@ describe("llm", () => {
     const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
     expect(prompt).toContain("make tetris");
     expect(prompt).toContain("lint failed");
+  });
+
+  it("requests JSON fixes using parse error context", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const result = await fixInvalidJsonResponse(
+      config,
+      "make tetris",
+      "{ bad json }",
+      "Expected property name or '}' in JSON at position 2"
+    );
+
+    expect(result).toContain("fixed");
+    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("make tetris");
+    expect(prompt).toContain("Expected property name");
+    expect(prompt).toContain("{ bad json }");
   });
 });
