@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AppConfig } from "./config.js";
-import { buildGenerationPrompt } from "./prompts.js";
+import { buildFixPrompt, buildGenerationPrompt } from "./prompts.js";
+import type { GeneratedProject } from "./types.js";
 
 export type StreamHandlers = {
   onReasoning?: (chunk: string) => void;
@@ -14,13 +15,12 @@ export function createOpenAiClient(config: AppConfig): OpenAI {
   });
 }
 
-export async function generateProjectFromIdea(
+export async function streamProjectCompletion(
   config: AppConfig,
-  idea: string,
+  prompt: string,
   handlers: StreamHandlers = {}
 ): Promise<string> {
   const client = createOpenAiClient(config);
-  const prompt = buildGenerationPrompt(idea);
 
   const stream = await client.chat.completions.create({
     model: config.openaiModel,
@@ -57,4 +57,26 @@ export async function generateProjectFromIdea(
   }
 
   return content;
+}
+
+export async function generateProjectFromIdea(
+  config: AppConfig,
+  idea: string,
+  handlers: StreamHandlers = {}
+): Promise<string> {
+  return streamProjectCompletion(config, buildGenerationPrompt(idea), handlers);
+}
+
+export async function fixProjectFromValidationErrors(
+  config: AppConfig,
+  idea: string,
+  project: GeneratedProject,
+  validationError: string,
+  handlers: StreamHandlers = {}
+): Promise<string> {
+  return streamProjectCompletion(
+    config,
+    buildFixPrompt(idea, project, validationError),
+    handlers
+  );
 }

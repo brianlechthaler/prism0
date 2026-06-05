@@ -73,4 +73,87 @@ describe("runGeneration", () => {
     expect(final?.status).toBe("error");
     expect(final?.error).toContain("api down");
   });
+
+  it("retries validation with model fixes until checks pass", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+
+    let validationCalls = 0;
+    vi.spyOn(validateModule, "validateGeneratedProject").mockImplementation(async () => {
+      validationCalls += 1;
+      if (validationCalls === 1) {
+        throw new Error("lint failed: unused var");
+      }
+      return { lintOutput: "ok", testOutput: "ok" };
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.fixProjectFromValidationErrors).toHaveBeenCalledTimes(1);
+    expect(validationCalls).toBe(2);
+    expect(final?.logs.some((l) => l.includes("Validation attempt 1/"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Re-running validation (attempt 2/"))).toBe(true);
+  });
+
+  it("handles non-error validation failures during retries", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+
+    let validationCalls = 0;
+    vi.spyOn(validateModule, "validateGeneratedProject").mockImplementation(async () => {
+      validationCalls += 1;
+      if (validationCalls === 1) {
+        throw "lint failed";
+      }
+      return { lintOutput: "ok", testOutput: "ok" };
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    expect(store.get(run.id)?.status).toBe("done");
+    expect(store.get(run.id)?.logs.some((l) => l.includes("Validation error: lint failed"))).toBe(
+      true
+    );
+  });
+
+  it("fails after exhausting validation retries", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockRejectedValue(
+      new Error("lint still failing")
+    );
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toContain("lint still failing");
+    expect(llm.fixProjectFromValidationErrors).toHaveBeenCalledTimes(4);
+  });
 });

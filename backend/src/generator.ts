@@ -1,11 +1,73 @@
 import type { AppConfig } from "./config.js";
-import { generateProjectFromIdea } from "./llm.js";
+import { fixProjectFromValidationErrors, generateProjectFromIdea } from "./llm.js";
 import { parseGeneratedResponse } from "./parseGenerated.js";
+import { MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
 import type { RunStore } from "./runStore.js";
+import type { GeneratedProject } from "./types.js";
 import { validateGeneratedProject } from "./validateProject.js";
 
 function timestamp(): string {
   return new Date().toISOString();
+}
+
+async function validateProjectWithRetries(
+  config: AppConfig,
+  store: RunStore,
+  runId: string,
+  idea: string,
+  project: GeneratedProject
+): Promise<GeneratedProject> {
+  store.appendLog(
+    runId,
+    `[${timestamp()}] Starting backend validation pipeline (lint → tests)…`
+  );
+
+  for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
+    try {
+      await validateGeneratedProject(runId, project.files, (line) => {
+        store.appendLog(runId, `[${timestamp()}] ${line}`);
+      });
+      return project;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (attempt >= MAX_VALIDATION_ATTEMPTS) {
+        throw error;
+      }
+
+      store.appendLog(
+        runId,
+        `[${timestamp()}] Validation attempt ${attempt}/${MAX_VALIDATION_ATTEMPTS} failed; requesting fixes from model…`
+      );
+      store.appendLog(runId, `[${timestamp()}] Validation error: ${message}`);
+
+      let fixStreamChars = 0;
+      const raw = await fixProjectFromValidationErrors(config, idea, project, message, {
+        onContent: (chunk) => {
+          fixStreamChars += chunk.length;
+          if (fixStreamChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model fix stream… ${fixStreamChars} chars received`
+            );
+          }
+        }
+      });
+
+      store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
+      project = parseGeneratedResponse(raw);
+      store.appendLog(
+        runId,
+        `[${timestamp()}] Fixed project summary: ${project.summary}`
+      );
+      store.appendLog(
+        runId,
+        `[${timestamp()}] Re-running validation (attempt ${attempt + 1}/${MAX_VALIDATION_ATTEMPTS})…`
+      );
+    }
+  }
+
+  return project;
 }
 
 export async function runGeneration(
@@ -59,7 +121,7 @@ export async function runGeneration(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing generated JSON project payload…`);
-    const project = parseGeneratedResponse(raw);
+    let project = parseGeneratedResponse(raw);
     store.appendLog(
       runId,
       `[${timestamp()}] Parsed project summary: ${project.summary}`
@@ -69,13 +131,7 @@ export async function runGeneration(
       `[${timestamp()}] Generated files: ${Object.keys(project.files).join(", ")}`
     );
 
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Starting backend validation pipeline (lint → tests)…`
-    );
-    await validateGeneratedProject(runId, project.files, (line) => {
-      store.appendLog(runId, `[${timestamp()}] ${line}`);
-    });
+    project = await validateProjectWithRetries(config, store, runId, idea, project);
 
     store.appendLog(runId, `[${timestamp()}] All checks passed. Publishing files to editor/preview.`);
     store.complete(runId, project.files);

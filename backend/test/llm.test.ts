@@ -12,7 +12,11 @@ vi.mock("openai", () => ({
   }))
 }));
 
-import { createOpenAiClient, generateProjectFromIdea } from "../src/llm.js";
+import {
+  createOpenAiClient,
+  fixProjectFromValidationErrors,
+  generateProjectFromIdea
+} from "../src/llm.js";
 
 const config = {
   openaiApiKey: "k",
@@ -62,5 +66,24 @@ describe("llm", () => {
     createMock.mockResolvedValue(mockStream());
 
     await expect(generateProjectFromIdea(config, "idea")).rejects.toThrow(/empty response/i);
+  });
+
+  it("requests fixes using validation error context", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const result = await fixProjectFromValidationErrors(
+      config,
+      "make tetris",
+      { summary: "broken tetris", files: { "index.js": "const x = 1;" } },
+      "lint failed"
+    );
+
+    expect(result).toContain("fixed");
+    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("make tetris");
+    expect(prompt).toContain("lint failed");
   });
 });
