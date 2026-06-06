@@ -29,7 +29,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   });
 
   app.post("/api/generate/:runId/fix", generationGuard, (req, res) => {
-    const sourceRun = store.get(req.params.runId);
+    const sourceRun = store.get(routeParam(req.params.runId));
     if (!sourceRun) {
       res.status(404).send("Run not found");
       return;
@@ -62,7 +62,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   });
 
   app.get("/api/generate/:runId/events", (req, res) => {
-    const runId = req.params.runId;
+    const runId = routeParam(req.params.runId);
     const run = store.get(runId);
     if (!run) {
       res.status(404).send("Run not found");
@@ -87,7 +87,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   });
 
   app.get("/api/project/:runId/download", (req, res) => {
-    const run = store.get(req.params.runId);
+    const run = store.get(routeParam(req.params.runId));
     if (!run || run.status !== "done") {
       res.status(404).send("Project not ready");
       return;
@@ -141,4 +141,8 @@ export function createGenerationGuard(
 
 function clientRateLimitKey(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+export function routeParam(value: string | string[] | undefined): string {
+  return typeof value === "string" ? value : "";
 }
