@@ -149,6 +149,6 @@ function clientRateLimitKey(req: Request): string {
   return req.ip || req.socket.remoteAddress || "unknown";
 }
 
-function routeParam(value: string | string[] | undefined): string | undefined {
+export function routeParam(value: string | string[] | undefined): string | undefined {
   return typeof value === "string" ? value : undefined;
 }

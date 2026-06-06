@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import express from "express";
-import { createGenerationGuard, registerRoutes } from "../src/routes.js";
+import { createGenerationGuard, registerRoutes, routeParam } from "../src/routes.js";
 import { RunStore } from "../src/runStore.js";
 
 const config = {
@@ -284,5 +284,13 @@ describe("createGenerationGuard", () => {
     guard({ ip: "", socket: {} } as express.Request, res, next);
 
     expect(next).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("routeParam", () => {
+  it("returns strings and rejects non-single route params", () => {
+    expect(routeParam("run-1")).toBe("run-1");
+    expect(routeParam(["run-1", "run-2"])).toBeUndefined();
+    expect(routeParam(undefined)).toBeUndefined();
   });
 });
