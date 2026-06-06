@@ -91,6 +91,40 @@ describe("useGeneration", () => {
     }
   });
 
+  it("closes an existing stream before starting a repair run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ runId: "source-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ runId: "repair-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        )
+    );
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    await act(async () => {
+      await result.current.repair("source-1", "Error: boom");
+    });
+
+    expect(source.close).toHaveBeenCalledTimes(1);
+    expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
+  });
+
   it("tracks logs and completion events", async () => {
     vi.stubGlobal(
       "fetch",
