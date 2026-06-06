@@ -10,6 +10,7 @@ const config = {
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
+  contextWindowTokens: 128_000,
   maxRuns: 100,
   maxActiveRuns: 100,
   generationRateLimitWindowMs: 60_000,
@@ -98,11 +99,31 @@ describe("registerRoutes", () => {
       expect(response.headers.get("content-type")).toContain("text/event-stream");
 
       store.appendLog(run.id, "working");
+      store.updateUsage(run.id, {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        contextWindowTokens: 100,
+        contextUsedTokens: 15,
+        contextUsedPercent: 15,
+        outputTokensPerSecond: 2.5,
+        buckets: [
+          {
+            kind: "generate",
+            label: "LLM generate",
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15
+          }
+        ]
+      });
       store.complete(run.id, { "index.html": "<html/>" });
 
       const body = await response.text();
       expect(body).toContain('"type":"log"');
       expect(body).toContain("working");
+      expect(body).toContain('"type":"usage"');
+      expect(body).toContain('"contextUsedPercent":15');
       expect(body).toContain('"type":"done"');
     });
   });
