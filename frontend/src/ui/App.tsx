@@ -176,7 +176,7 @@ export function App() {
                 className="input"
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
-                onFocus={() => setIsIdeaMultiline(true)}
+                onClick={() => setIsIdeaMultiline(true)}
                 placeholder='e.g. "make a tetris game"'
               />
             )}

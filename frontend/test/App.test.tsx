@@ -23,9 +23,9 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
   });
 
-  it("expands the idea input into a paragraph field on focus", () => {
+  it("expands the idea input into a paragraph field on click", () => {
     render(<App />);
-    fireEvent.focus(screen.getByLabelText(/what should we build/i));
+    fireEvent.click(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     expect(ideaField.tagName).toBe("TEXTAREA");
     expect(ideaField).toHaveAttribute("rows", "4");
@@ -43,7 +43,7 @@ describe("App", () => {
 
   it("submits multiline ideas from the paragraph field", () => {
     render(<App />);
-    fireEvent.focus(screen.getByLabelText(/what should we build/i));
+    fireEvent.click(screen.getByLabelText(/what should we build/i));
     fireEvent.change(screen.getByLabelText(/what should we build/i), {
       target: { value: "make pong\nwith neon particles" }
     });
