@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, RequestHandler } from "express";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
@@ -14,7 +14,9 @@ const RuntimeFixBodySchema = z.object({
 });
 
 export function registerRoutes(app: Express, config: AppConfig, store: RunStore): void {
-  app.post("/api/generate", (req, res) => {
+  const generationGuard = createGenerationGuard(config, store);
+
+  app.post("/api/generate", generationGuard, (req, res) => {
     const parsed = GenerateBodySchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((i) => i.message).join("; "));
@@ -26,7 +28,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     res.json({ runId: run.id });
   });
 
-  app.post("/api/generate/:runId/fix", (req, res) => {
+  app.post("/api/generate/:runId/fix", generationGuard, (req, res) => {
     const sourceRun = store.get(req.params.runId);
     if (!sourceRun) {
       res.status(404).send("Run not found");
@@ -96,4 +98,47 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     res.setHeader("Content-Disposition", `attachment; filename="prism0-${run.id}.zip"`);
     res.send(zip);
   });
+}
+
+type RateBucket = {
+  count: number;
+  resetAt: number;
+};
+
+export function createGenerationGuard(
+  config: AppConfig,
+  store: RunStore,
+  now: () => number = Date.now
+): RequestHandler {
+  const buckets = new Map<string, RateBucket>();
+
+  return (req, res, next) => {
+    if (store.activeCount() >= config.maxActiveRuns) {
+      res.status(503).send("Generation capacity reached; try again later");
+      return;
+    }
+
+    const currentTime = now();
+    const key = clientRateLimitKey(req);
+    const existing = buckets.get(key);
+    const bucket =
+      existing && existing.resetAt > currentTime
+        ? existing
+        : { count: 0, resetAt: currentTime + config.generationRateLimitWindowMs };
+
+    if (bucket.count >= config.generationRateLimitMax) {
+      res.setHeader("Retry-After", String(Math.ceil((bucket.resetAt - currentTime) / 1000)));
+      res.status(429).send("Too many generation requests; try again later");
+      buckets.set(key, bucket);
+      return;
+    }
+
+    bucket.count += 1;
+    buckets.set(key, bucket);
+    next();
+  };
+}
+
+function clientRateLimitKey(req: Request): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
 }

@@ -34,6 +34,9 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `PORT` (optional, default: `8787`)
 - `REQUEST_TIMEOUT_MS` (optional, default: `120000`)
 - `MAX_RUNS` (optional, default: `100`; caps retained completed/failed run metadata per process)
+- `MAX_ACTIVE_RUNS` (optional, default: `5`; caps simultaneous pending/running generations per process)
+- `GENERATION_RATE_LIMIT_WINDOW_MS` (optional, default: `60000`; request throttle window)
+- `GENERATION_RATE_LIMIT_MAX` (optional, default: `10`; generation/repair requests allowed per client per window)
 - `CORS_ORIGIN` (optional, unset by default; set only when serving the API cross-origin)
 - `TRUST_PROXY` (optional, default: `false`; set to `true` behind a trusted reverse proxy)
 
@@ -118,9 +121,9 @@ Architecture, scaling, and reliability notes:
 docs/architecture.md
 ```
 
-### CI and coverage
+### CI, coverage, and security
 
-GitHub Actions cover lint, tests with 100% coverage thresholds, TypeScript checks, production builds, Docker image builds, and Kubernetes manifest validation.
+GitHub Actions cover lint, tests with 100% coverage thresholds, TypeScript checks, production builds, Docker image builds, Kubernetes manifest validation, and scheduled npm vulnerability audits.
 
 ### Reverse proxy notes
 

@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   copyHarnessConfigs,
+  createValidationEnv,
   resolveExecuteCommand,
   resolveValidationOrchestration,
   runCommand,
@@ -70,9 +71,34 @@ describe("validateGeneratedProject", () => {
 
     expect(deps.fs.writeFile).toHaveBeenCalledTimes(5);
     expect(deps.copyConfigs).toHaveBeenCalled();
-    expect(deps.execute).toHaveBeenCalledTimes(2);
+    expect(deps.execute).toHaveBeenCalledWith(
+      process.execPath,
+      ["/harness/runs/run-1/node_modules/eslint/bin/eslint.js", "."],
+      "/harness/runs/run-1",
+      expect.any(Function),
+      deps.spawn
+    );
+    expect(deps.execute).toHaveBeenCalledWith(
+      process.execPath,
+      ["/harness/runs/run-1/node_modules/vitest/vitest.mjs", "run"],
+      "/harness/runs/run-1",
+      expect.any(Function),
+      deps.spawn
+    );
     expect(result).toEqual({ lintOutput: "lint ok", testOutput: "tests ok" });
     expect(logs.some((l) => l.includes("Validation finished successfully"))).toBe(true);
+  });
+
+  it("rejects unsafe generated filenames before writing files", async () => {
+    const deps = createDeps({
+      copyConfigs: vi.fn().mockResolvedValue(undefined),
+      execute: vi.fn().mockResolvedValue("ok")
+    });
+
+    await expect(
+      validateGeneratedProject("run-1", { "../escape.js": "x" }, () => {}, deps)
+    ).rejects.toThrow(/unsafe/);
+    expect(deps.fs.writeFile).not.toHaveBeenCalled();
   });
 });
 
@@ -121,10 +147,15 @@ describe("copyHarnessConfigs", () => {
     await copyHarnessConfigs("/harness/runs/r", () => {}, deps);
     expect(deps.execute).toHaveBeenCalledWith(
       "npm",
-      ["install"],
-      "/harness/runs/r",
+      ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+      "/harness",
       expect.any(Function),
       deps.spawn
+    );
+    expect(deps.fs.symlink).toHaveBeenCalledWith(
+      "/harness/node_modules",
+      "/harness/runs/r/node_modules",
+      "dir"
     );
   });
 });
@@ -166,6 +197,7 @@ describe("runCommand", () => {
     const spawn = vi.fn().mockReturnValue(mockChild(0, "ok"));
     await runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn);
     expect(spawn.mock.calls[0]?.[2]).toMatchObject({ shell: true, cwd: "/tmp" });
+    expect(spawn.mock.calls[0]?.[2]?.env).not.toHaveProperty("OPENAI_API_KEY");
     platform.mockRestore();
   });
 
@@ -184,5 +216,18 @@ describe("runCommand", () => {
     await expect(runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn)).rejects.toThrow(
       /spawn failed/
     );
+  });
+});
+
+describe("createValidationEnv", () => {
+  it("keeps only non-secret process environment needed for tools", () => {
+    expect(
+      createValidationEnv({
+        PATH: "/bin",
+        HOME: "/home/test",
+        OPENAI_API_KEY: "secret",
+        NPM_TOKEN: "token"
+      })
+    ).toEqual({ HOME: "/home/test", PATH: "/bin" });
   });
 });

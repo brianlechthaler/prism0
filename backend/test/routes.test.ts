@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import express from "express";
-import { registerRoutes } from "../src/routes.js";
+import { createGenerationGuard, registerRoutes } from "../src/routes.js";
 import { RunStore } from "../src/runStore.js";
 
 const config = {
@@ -11,13 +11,16 @@ const config = {
   port: 8787,
   requestTimeoutMs: 120_000,
   maxRuns: 100,
+  maxActiveRuns: 100,
+  generationRateLimitWindowMs: 60_000,
+  generationRateLimitMax: 100,
   trustProxy: false
 };
 
-function createTestApp(store = new RunStore()) {
+function createTestApp(store = new RunStore(), appConfig = config) {
   const app = express();
   app.use(express.json());
-  registerRoutes(app, config, store);
+  registerRoutes(app, appConfig, store);
   return { app, store };
 }
 
@@ -33,6 +36,10 @@ async function withServer<T>(app: express.Express, fn: (port: number) => Promise
 }
 
 describe("registerRoutes", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("rejects invalid generate payloads", async () => {
     const { app } = createTestApp();
     await withServer(app, async (port) => {
@@ -124,6 +131,48 @@ describe("registerRoutes", () => {
     });
   });
 
+  it("rate limits generation requests by client", async () => {
+    vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
+    const { app } = createTestApp(new RunStore(), {
+      ...config,
+      generationRateLimitMax: 1,
+      generationRateLimitWindowMs: 60_000
+    });
+
+    await withServer(app, async (port) => {
+      const body = JSON.stringify({ idea: "make a tiny app" });
+      const first = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body
+      });
+      const second = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body
+      });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(429);
+      expect(second.headers.get("retry-after")).toBe("60");
+    });
+  });
+
+  it("rejects new generation requests when active capacity is reached", async () => {
+    const { app, store } = createTestApp(new RunStore(), { ...config, maxActiveRuns: 1 });
+    store.create("already running");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make another tiny app" })
+      });
+
+      expect(res.status).toBe(503);
+    });
+  });
+
   it("starts runtime repair asynchronously", async () => {
     const repairSpy = vi
       .spyOn(await import("../src/generator.js"), "runRuntimeRepair")
@@ -195,5 +244,45 @@ describe("registerRoutes", () => {
       });
       expect(res.status).toBe(409);
     });
+  });
+});
+
+describe("createGenerationGuard", () => {
+  it("resets rate-limit buckets after the configured window", () => {
+    let currentTime = 0;
+    const guard = createGenerationGuard(
+      { ...config, generationRateLimitMax: 1, generationRateLimitWindowMs: 10 },
+      new RunStore(),
+      () => currentTime
+    );
+    const req = { ip: "127.0.0.1", socket: {} } as express.Request;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      send: vi.fn(),
+      setHeader: vi.fn()
+    } as unknown as express.Response;
+    const next = vi.fn();
+
+    guard(req, res, next);
+    currentTime = 11;
+    guard(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("falls back to socket and unknown client keys", () => {
+    const guard = createGenerationGuard(config, new RunStore());
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      send: vi.fn(),
+      setHeader: vi.fn()
+    } as unknown as express.Response;
+    const next = vi.fn();
+
+    guard({ ip: "", socket: { remoteAddress: "socket-client" } } as express.Request, res, next);
+    guard({ ip: "", socket: {} } as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledTimes(2);
   });
 });

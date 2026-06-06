@@ -38,9 +38,10 @@ Hard requirements:
 7. index.js must export the core logic for tests (e.g. export functions/classes used by tests).
 8. Keep files reasonably small but complete and runnable.
 9. Do not include external CDN dependencies except none required; prefer zero dependencies in runtime.
-10. package.json is only for lint/test tooling metadata (no runtime npm deps required).
-11. Code must pass ESLint (no-unused-vars): no unused variables, imports, or parameters.
-12. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
+10. File paths must be relative project paths only; never include absolute paths, backslashes, ".", "..", or empty path segments.
+11. package.json must contain only "type": "module" and scripts exactly {"test":"vitest run","lint":"eslint ."}; no dependencies or extra scripts.
+12. Code must pass ESLint (no-unused-vars): no unused variables, imports, or parameters.
+13. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
 
 Quality bar:
 - Thoughtful UX copy and states (loading/empty/error when relevant)
@@ -96,8 +97,9 @@ Requirements:
 2. Fix all reported ESLint errors (especially no-unused-vars).
 3. Fix all failing Vitest assertions.
 4. Keep vanilla HTML/CSS/JS with exported core logic in index.js for tests.
-5. Do not introduce unused variables, imports, or parameters.
-6. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
+5. Keep file paths relative and package.json scripts exactly {"test":"vitest run","lint":"eslint ."} with no dependencies or extra scripts.
+6. Do not introduce unused variables, imports, or parameters.
+7. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
 `;
 }
 
@@ -147,8 +149,9 @@ Requirements:
 1. Preserve the original app idea and working behavior unless it caused the runtime crash.
 2. Fix the reported runtime error and add or update tests that would catch the bug where practical.
 3. Keep vanilla HTML/CSS/JS with exported core logic in index.js for tests.
-4. Do not introduce unused variables, imports, or parameters.
-5. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
+4. Keep file paths relative and package.json scripts exactly {"test":"vitest run","lint":"eslint ."} with no dependencies or extra scripts.
+5. Do not introduce unused variables, imports, or parameters.
+6. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
 `;
 }
 
@@ -193,5 +196,6 @@ JSON formatting rules (critical):
 4. No trailing commas, comments, or JavaScript syntax (no undefined, no unquoted keys).
 5. Do not wrap the JSON in markdown code fences or add any text before or after it.
 6. Include all required files: index.html, index.js, styles.css, index.test.js, package.json.
+7. Keep file paths relative and package.json scripts exactly {"test":"vitest run","lint":"eslint ."} with no dependencies or extra scripts.
 `;
 }

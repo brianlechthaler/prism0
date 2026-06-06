@@ -13,6 +13,9 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().optional(),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   MAX_RUNS: z.coerce.number().int().positive().optional(),
+  MAX_ACTIVE_RUNS: z.coerce.number().int().positive().optional(),
+  GENERATION_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
+  GENERATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
   CORS_ORIGIN: z.string().min(1).optional(),
   TRUST_PROXY: BooleanEnvSchema.optional()
 });
@@ -33,6 +36,9 @@ export type AppConfig = {
   port: number;
   requestTimeoutMs: number;
   maxRuns: number;
+  maxActiveRuns: number;
+  generationRateLimitWindowMs: number;
+  generationRateLimitMax: number;
   corsOrigin?: string;
   trustProxy: boolean;
 };
@@ -46,6 +52,9 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     PORT: cli.port ?? env.PORT,
     REQUEST_TIMEOUT_MS: env.REQUEST_TIMEOUT_MS,
     MAX_RUNS: env.MAX_RUNS,
+    MAX_ACTIVE_RUNS: env.MAX_ACTIVE_RUNS,
+    GENERATION_RATE_LIMIT_WINDOW_MS: env.GENERATION_RATE_LIMIT_WINDOW_MS,
+    GENERATION_RATE_LIMIT_MAX: env.GENERATION_RATE_LIMIT_MAX,
     CORS_ORIGIN: env.CORS_ORIGIN,
     TRUST_PROXY: env.TRUST_PROXY
   };
@@ -70,6 +79,9 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     port: parsed.data.PORT ?? 8787,
     requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000,
     maxRuns: parsed.data.MAX_RUNS ?? 100,
+    maxActiveRuns: parsed.data.MAX_ACTIVE_RUNS ?? 5,
+    generationRateLimitWindowMs: parsed.data.GENERATION_RATE_LIMIT_WINDOW_MS ?? 60_000,
+    generationRateLimitMax: parsed.data.GENERATION_RATE_LIMIT_MAX ?? 10,
     corsOrigin: parsed.data.CORS_ORIGIN,
     trustProxy: parsed.data.TRUST_PROXY ?? false
   };
