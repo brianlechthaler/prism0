@@ -10,6 +10,8 @@ describe("parseCliArgs", () => {
       "https://example.com/v1",
       "--model",
       "m",
+      "--host",
+      "127.0.0.1",
       "--port",
       "9000"
     ]);
@@ -17,6 +19,7 @@ describe("parseCliArgs", () => {
       apiKey: "k",
       baseUrl: "https://example.com/v1",
       model: "m",
+      host: "127.0.0.1",
       port: 9000
     });
   });

@@ -2,6 +2,7 @@ export type CliArgs = {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  host?: string;
   port?: number;
 };
 
@@ -20,6 +21,9 @@ export function parseCliArgs(argv: string[]): CliArgs {
       i++;
     } else if (token === "--model" && next) {
       args.model = next;
+      i++;
+    } else if (token === "--host" && next) {
+      args.host = next;
       i++;
     } else if (token === "--port" && next) {
       args.port = Number(next);

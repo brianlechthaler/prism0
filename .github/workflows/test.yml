@@ -24,3 +24,20 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Build production artifacts
+        run: npm run build
+
+      - name: Smoke test production server
+        run: |
+          OPENAI_API_KEY=ci-smoke-test npm start &
+          server_pid=$!
+          trap "kill $server_pid" EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:8787/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Production server failed smoke test" >&2
+          exit 1
