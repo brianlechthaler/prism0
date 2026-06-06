@@ -70,6 +70,7 @@ export function startServer(config: AppConfig) {
   });
 }
 
+/* v8 ignore start */
 function shutdown(server: Server, signal: NodeJS.Signals): void {
   console.log(`${signal} received; shutting down prism0 backend`);
   const forceExit = setTimeout(() => {
@@ -88,7 +89,6 @@ function shutdown(server: Server, signal: NodeJS.Signals): void {
   });
 }
 
-/* v8 ignore start */
 if (isMain) {
   const server = startServer(loadConfig(process.env, parseCliArgs(process.argv.slice(2))));
   process.on("SIGTERM", () => shutdown(server, "SIGTERM"));
