@@ -5,22 +5,40 @@ type Subscriber = (message: SseMessage) => void;
 
 type InternalRun = GenerationRun & {
   subscribers: Set<Subscriber>;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type RunStoreOptions = {
+  maxRuns?: number;
+  now?: () => number;
 };
 
 export class RunStore {
   private runs = new Map<string, InternalRun>();
+  private readonly maxRuns: number;
+  private readonly now: () => number;
+
+  constructor(options: RunStoreOptions = {}) {
+    this.maxRuns = options.maxRuns ?? 100;
+    this.now = options.now ?? Date.now;
+  }
 
   create(idea: string): GenerationRun {
     const id = randomUUID();
+    const now = this.now();
     const run: InternalRun = {
       id,
       idea,
       status: "pending",
       logs: [],
       files: {},
-      subscribers: new Set()
+      subscribers: new Set(),
+      createdAt: now,
+      updatedAt: now
     };
     this.runs.set(id, run);
+    this.pruneTerminalRuns();
     return this.snapshot(run);
   }
 
@@ -51,31 +69,40 @@ export class RunStore {
   appendLog(id: string, line: string): void {
     const run = this.require(id);
     run.logs.push(line);
+    run.updatedAt = this.now();
     this.broadcast(run, { type: "log", line });
   }
 
   setStatus(id: string, status: RunStatus): void {
-    this.require(id).status = status;
+    const run = this.require(id);
+    run.status = status;
+    run.updatedAt = this.now();
   }
 
   setFiles(id: string, files: Record<string, string>): void {
-    this.require(id).files = files;
+    const run = this.require(id);
+    run.files = files;
+    run.updatedAt = this.now();
   }
 
   complete(id: string, files: Record<string, string>): void {
     const run = this.require(id);
     run.status = "done";
     run.files = files;
+    run.updatedAt = this.now();
     this.broadcast(run, { type: "done", files });
     run.subscribers.clear();
+    this.pruneTerminalRuns();
   }
 
   fail(id: string, message: string): void {
     const run = this.require(id);
     run.status = "error";
     run.error = message;
+    run.updatedAt = this.now();
     this.broadcast(run, { type: "error", message });
     run.subscribers.clear();
+    this.pruneTerminalRuns();
   }
 
   private require(id: string): InternalRun {
@@ -87,6 +114,19 @@ export class RunStore {
   private broadcast(run: InternalRun, message: SseMessage): void {
     for (const subscriber of run.subscribers) {
       subscriber(message);
+    }
+  }
+
+  private pruneTerminalRuns(): void {
+    if (this.runs.size <= this.maxRuns) return;
+
+    const terminalRuns = [...this.runs.values()]
+      .filter((run) => run.status === "done" || run.status === "error")
+      .sort((a, b) => a.updatedAt - b.updatedAt);
+
+    for (const run of terminalRuns) {
+      if (this.runs.size <= this.maxRuns) break;
+      this.runs.delete(run.id);
     }
   }
 

@@ -26,9 +26,9 @@ vi.mock("../src/hooks/useGeneration", () => ({
 }));
 
 describe("App ready state", () => {
-  it("shows download link and sandpack editor", () => {
+  it("shows download link and sandpack editor", async () => {
     render(<App />);
     expect(screen.getByText(/download zip/i)).toBeInTheDocument();
-    expect(screen.getByTestId("sandpack")).toBeInTheDocument();
+    expect(await screen.findByTestId("sandpack")).toBeInTheDocument();
   });
 });

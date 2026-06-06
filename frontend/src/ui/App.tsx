@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { Sandpack } from "@codesandbox/sandpack-react";
 import { useGeneration } from "../hooks/useGeneration";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
 export const PREVIEW_ERROR_MESSAGE_TYPE = "prism0-preview-error";
+const LazySandpack = React.lazy(async () => {
+  const { Sandpack } = await import("@codesandbox/sandpack-react");
+  return { default: Sandpack };
+});
 
 type PreviewRuntimeError = {
   type: typeof PREVIEW_ERROR_MESSAGE_TYPE;
@@ -185,17 +188,19 @@ export function App() {
             <div className="panelTitle">Editor + Preview</div>
             {sandpackFiles ? (
               <>
-                <Sandpack
-                  template="vanilla"
-                  theme="dark"
-                  files={sandpackFiles}
-                  options={{
-                    showLineNumbers: true,
-                    wrapContent: true,
-                    editorHeight: 360,
-                    layout: "preview"
-                  }}
-                />
+                <React.Suspense fallback={<div className="placeholder">Loading editor…</div>}>
+                  <LazySandpack
+                    template="vanilla"
+                    theme="dark"
+                    files={sandpackFiles}
+                    options={{
+                      showLineNumbers: true,
+                      wrapContent: true,
+                      editorHeight: 360,
+                      layout: "preview"
+                    }}
+                  />
+                </React.Suspense>
                 {previewErrorText && state.kind === "ready" ? (
                   <div className="runtimeError" role="alert">
                     <div className="runtimeErrorTitle">Generated app crashed</div>

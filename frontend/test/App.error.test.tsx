@@ -88,7 +88,7 @@ describe("App error state", () => {
     expect(withPreviewErrorReporter(bodyOnly, "r1")).toBe(bodyOnly);
   });
 
-  it("ignores malformed or stale preview error messages", () => {
+  it("ignores malformed or stale preview error messages", async () => {
     mocks.state = {
       kind: "ready",
       runId: "r1",
@@ -100,6 +100,7 @@ describe("App error state", () => {
     };
 
     render(<App />);
+    await act(async () => {});
 
     act(() => {
       for (const data of [

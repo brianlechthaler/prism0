@@ -1,0 +1,36 @@
+name: Kubernetes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate-manifests:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+
+      - name: Install kubeconform
+        run: go install github.com/yannh/kubeconform/cmd/kubeconform@latest
+
+      - name: Render Kustomize manifests
+        run: kubectl kustomize k8s > /tmp/prism0-k8s.yaml
+
+      - name: Validate default manifests
+        run: kubeconform -strict -summary /tmp/prism0-k8s.yaml
+
+      - name: Validate optional manifests
+        run: |
+          kubeconform -strict -summary k8s/secret.example.yaml
+          kubeconform -strict -summary k8s/hpa.yaml

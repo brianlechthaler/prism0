@@ -68,9 +68,11 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     }
 
     res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
+    res.write(": connected\n\n");
 
     const unsubscribe = store.subscribe(runId, (message) => {
       res.write(`data: ${JSON.stringify(message)}\n\n`);

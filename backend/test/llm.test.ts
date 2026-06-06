@@ -1,16 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createMock = vi.fn();
 
-vi.mock("openai", () => ({
-  default: vi.fn().mockImplementation(() => ({
-    chat: {
-      completions: {
-        create: createMock
+vi.mock("openai", () => {
+  const MockOpenAI = vi.fn(function MockOpenAI() {
+    return {
+      chat: {
+        completions: {
+          create: createMock
+        }
       }
-    }
-  }))
-}));
+    };
+  });
+
+  return { default: MockOpenAI };
+});
 
 import {
   createOpenAiClient,
@@ -24,13 +28,21 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  host: "127.0.0.1",
   port: 8787,
-  requestTimeoutMs: 120_000
+  requestTimeoutMs: 120_000,
+  maxRuns: 100,
+  trustProxy: false
 };
 
 describe("llm", () => {
   beforeEach(() => {
     createMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("creates an OpenAI client", () => {
@@ -100,7 +112,6 @@ describe("llm", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await rejection;
 
-    vi.useRealTimers();
   });
 
   it("times out when the API never opens a stream", async () => {
@@ -114,7 +125,6 @@ describe("llm", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     await rejection;
 
-    vi.useRealTimers();
   });
 
   it("times out when the model never sends a first chunk", async () => {
@@ -136,7 +146,6 @@ describe("llm", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     await rejection;
 
-    vi.useRealTimers();
   });
 
   it("enforces a hard stream time limit", async () => {
@@ -163,8 +172,6 @@ describe("llm", () => {
     await vi.advanceTimersByTimeAsync(1);
     await rejection;
 
-    now.mockRestore();
-    vi.useRealTimers();
   });
 
   it("throws on empty model response", async () => {

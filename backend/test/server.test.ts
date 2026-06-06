@@ -2,12 +2,29 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp, isMainModule, startServer } from "../src/server.js";
+import {
+  createApp,
+  isMainModule,
+  resolveCorsOrigins,
+  sendIndexFallback,
+  startServer
+} from "../src/server.js";
 
 const distDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../frontend/dist"
 );
+
+const testConfig = {
+  openaiApiKey: "k",
+  openaiBaseUrl: "https://example.com/v1",
+  openaiModel: "m",
+  host: "127.0.0.1",
+  port: 8787,
+  requestTimeoutMs: 120_000,
+  maxRuns: 100,
+  trustProxy: false
+};
 
 describe("createApp", () => {
   afterEach(async () => {
@@ -18,13 +35,7 @@ describe("createApp", () => {
     await fs.mkdir(distDir, { recursive: true });
     await fs.writeFile(path.join(distDir, "index.html"), "<html>prism0</html>");
 
-    const app = createApp({
-      openaiApiKey: "k",
-      openaiBaseUrl: "https://example.com/v1",
-      openaiModel: "m",
-      port: 8787,
-      requestTimeoutMs: 120_000
-    });
+    const app = createApp(testConfig);
     const server = app.listen(0);
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no address");
@@ -36,13 +47,7 @@ describe("createApp", () => {
   });
 
   it("skips index fallback for unknown api routes", async () => {
-    const app = createApp({
-      openaiApiKey: "k",
-      openaiBaseUrl: "https://example.com/v1",
-      openaiModel: "m",
-      port: 8787,
-      requestTimeoutMs: 120_000
-    });
+    const app = createApp(testConfig);
     const server = app.listen(0);
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no address");
@@ -53,13 +58,7 @@ describe("createApp", () => {
   });
 
   it("falls through when frontend build is missing", async () => {
-    const app = createApp({
-      openaiApiKey: "k",
-      openaiBaseUrl: "https://example.com/v1",
-      openaiModel: "m",
-      port: 8787,
-      requestTimeoutMs: 120_000
-    });
+    const app = createApp(testConfig);
     const server = app.listen(0);
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no address");
@@ -70,13 +69,7 @@ describe("createApp", () => {
   });
 
   it("serves /api/health", async () => {
-    const app = createApp({
-      openaiApiKey: "k",
-      openaiBaseUrl: "https://example.com/v1",
-      openaiModel: "m",
-      port: 8787,
-      requestTimeoutMs: 120_000
-    });
+    const app = createApp(testConfig);
     const server = app.listen(0);
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no address");
@@ -87,6 +80,92 @@ describe("createApp", () => {
     expect(json.ok).toBe(true);
 
     server.close();
+  });
+
+  it("sets security headers without enabling cross-origin access by default", async () => {
+    const app = createApp(testConfig);
+    const server = app.listen(0);
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}/api/health`, {
+      headers: { origin: "https://example.com" }
+    });
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("permissions-policy")).toBe(
+      "camera=(), microphone=(), geolocation=()"
+    );
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+
+    server.close();
+  });
+
+  it("uses the configured CORS origin when one is provided", async () => {
+    const app = createApp({ ...testConfig, corsOrigin: "https://app.example" });
+    const server = app.listen(0);
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}/api/health`, {
+      headers: { origin: "https://app.example" }
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBe("https://app.example");
+
+    server.close();
+  });
+});
+
+describe("resolveCorsOrigins", () => {
+  it("returns a single origin when only one is configured", () => {
+    expect(resolveCorsOrigins("https://app.example")).toBe("https://app.example");
+  });
+
+  it("returns multiple trimmed origins for comma-separated config", () => {
+    expect(resolveCorsOrigins("https://one.example, https://two.example")).toEqual([
+      "https://one.example",
+      "https://two.example"
+    ]);
+  });
+});
+
+describe("sendIndexFallback", () => {
+  it("passes api routes through", () => {
+    const next = vi.fn();
+    const res = { sendFile: vi.fn() } as unknown as express.Response;
+
+    sendIndexFallback("/tmp/static", { path: "/api/missing" } as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.sendFile).not.toHaveBeenCalled();
+  });
+
+  it("sends index.html for frontend routes", () => {
+    const next = vi.fn();
+    const res = {
+      sendFile: vi.fn((_file: string, callback: (error?: Error) => void) => callback())
+    } as unknown as express.Response;
+
+    sendIndexFallback("/tmp/static", { path: "/app" } as express.Request, res, next);
+
+    expect(res.sendFile).toHaveBeenCalledWith(
+      path.join("/tmp/static", "index.html"),
+      expect.any(Function)
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("delegates index send errors", () => {
+    const next = vi.fn();
+    const error = new Error("missing index");
+    const res = {
+      sendFile: vi.fn((_file: string, callback: (error?: Error) => void) => callback(error))
+    } as unknown as express.Response;
+
+    sendIndexFallback("/tmp/static", { path: "/app" } as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -99,13 +178,7 @@ describe("isMainModule", () => {
 describe("startServer", () => {
   it("returns an http server and logs when listening", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const server = startServer({
-      openaiApiKey: "k",
-      openaiBaseUrl: "https://example.com/v1",
-      openaiModel: "m",
-      port: 0,
-      requestTimeoutMs: 120_000
-    });
+    const server = startServer({ ...testConfig, port: 0 });
 
     await new Promise<void>((resolve) => server.once("listening", () => resolve()));
     expect(typeof server.close).toBe("function");

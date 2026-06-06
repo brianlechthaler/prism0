@@ -7,8 +7,11 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  host: "127.0.0.1",
   port: 8787,
-  requestTimeoutMs: 120_000
+  requestTimeoutMs: 120_000,
+  maxRuns: 100,
+  trustProxy: false
 };
 
 function createTestApp(store = new RunStore()) {
@@ -74,6 +77,8 @@ describe("registerRoutes", () => {
       controller.abort();
       await response.text().catch(() => "closed");
       expect(response.headers.get("content-type")).toContain("text/event-stream");
+      expect(response.headers.get("cache-control")).toBe("no-cache, no-transform");
+      expect(response.headers.get("x-accel-buffering")).toBe("no");
     });
   });
 

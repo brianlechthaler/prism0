@@ -10,6 +10,8 @@ describe("parseCliArgs", () => {
       "https://example.com/v1",
       "--model",
       "m",
+      "--host",
+      "127.0.0.1",
       "--port",
       "9000"
     ]);
@@ -17,11 +19,16 @@ describe("parseCliArgs", () => {
       apiKey: "k",
       baseUrl: "https://example.com/v1",
       model: "m",
+      host: "127.0.0.1",
       port: 9000
     });
   });
 
   it("returns empty object when no flags are present", () => {
     expect(parseCliArgs([])).toEqual({});
+  });
+
+  it("ignores flags that are missing values", () => {
+    expect(parseCliArgs(["--api-key", "--base-url", "--model", "--host", "--port"])).toEqual({});
   });
 });

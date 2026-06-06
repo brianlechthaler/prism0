@@ -7,8 +7,12 @@ describe("loadConfig", () => {
     expect(cfg.openaiApiKey).toBe("k");
     expect(cfg.openaiBaseUrl).toBe("https://api.openai.com/v1");
     expect(cfg.openaiModel).toBe("gpt-4.1-mini");
+    expect(cfg.host).toBe("0.0.0.0");
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
+    expect(cfg.maxRuns).toBe(100);
+    expect(cfg.corsOrigin).toBeUndefined();
+    expect(cfg.trustProxy).toBe(false);
   });
 
   it("accepts request timeout override from env", () => {
@@ -16,16 +20,32 @@ describe("loadConfig", () => {
     expect(cfg.requestTimeoutMs).toBe(45_000);
   });
 
+  it("accepts max run retention override from env", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", MAX_RUNS: "25" });
+    expect(cfg.maxRuns).toBe(25);
+  });
+
   it("accepts overrides from env", () => {
     const cfg = loadConfig({
       OPENAI_API_KEY: "k",
       OPENAI_BASE_URL: "https://example.com/v1",
       OPENAI_MODEL: "m",
-      PORT: "9999"
+      HOST: "127.0.0.1",
+      PORT: "9999",
+      CORS_ORIGIN: "https://app.example",
+      TRUST_PROXY: "true"
     });
     expect(cfg.openaiBaseUrl).toBe("https://example.com/v1");
     expect(cfg.openaiModel).toBe("m");
+    expect(cfg.host).toBe("127.0.0.1");
     expect(cfg.port).toBe(9999);
+    expect(cfg.corsOrigin).toBe("https://app.example");
+    expect(cfg.trustProxy).toBe(true);
+  });
+
+  it("accepts false trust proxy override from env", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", TRUST_PROXY: "false" });
+    expect(cfg.trustProxy).toBe(false);
   });
 
   it("prefers CLI args over env", () => {
@@ -34,18 +54,21 @@ describe("loadConfig", () => {
         OPENAI_API_KEY: "env",
         OPENAI_BASE_URL: "https://env.example/v1",
         OPENAI_MODEL: "env-model",
+        HOST: "env-host",
         PORT: "1111"
       },
       {
         apiKey: "cli",
         baseUrl: "https://cli.example/v1",
         model: "cli-model",
+        host: "cli-host",
         port: 2222
       }
     );
     expect(cfg.openaiApiKey).toBe("cli");
     expect(cfg.openaiBaseUrl).toBe("https://cli.example/v1");
     expect(cfg.openaiModel).toBe("cli-model");
+    expect(cfg.host).toBe("cli-host");
     expect(cfg.port).toBe(2222);
   });
 

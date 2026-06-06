@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: prism0
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    numInstances: 1
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "8787"
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: REQUEST_TIMEOUT_MS
+        value: "120000"
+      - key: MAX_RUNS
+        value: "100"
+      - key: TRUST_PROXY
+        value: "true"

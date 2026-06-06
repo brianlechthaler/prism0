@@ -28,7 +28,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
       })
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
   }
 }
 
@@ -58,7 +58,7 @@ async function nextChunkWithTimeout<T>(
       })
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
   }
 }
 
