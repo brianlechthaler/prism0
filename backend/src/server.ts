@@ -27,7 +27,7 @@ export function createApp(config = loadConfig(process.env, parseCliArgs(process.
 
   const staticDir = path.resolve(__dirname, "../../frontend/dist");
   app.use(express.static(staticDir));
-  app.get("*", (req, res, next) => sendIndexFallback(staticDir, req, res, next));
+  app.get(/.*/, (req, res, next) => sendIndexFallback(staticDir, req, res, next));
 
   return app;
 }
