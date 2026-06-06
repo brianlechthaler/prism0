@@ -6,12 +6,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes("@codesandbox")) return "vendor-sandpack";
-          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
-            return "vendor-react";
-          }
-          if (id.includes("node_modules")) return "vendor";
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-sandpack": ["@codesandbox/sandpack-react"]
         }
       }
     }
