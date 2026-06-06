@@ -11,6 +11,9 @@ describe("loadConfig", () => {
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
     expect(cfg.maxRuns).toBe(100);
+    expect(cfg.maxActiveRuns).toBe(5);
+    expect(cfg.generationRateLimitWindowMs).toBe(60_000);
+    expect(cfg.generationRateLimitMax).toBe(10);
     expect(cfg.corsOrigin).toBeUndefined();
     expect(cfg.trustProxy).toBe(false);
   });
@@ -23,6 +26,18 @@ describe("loadConfig", () => {
   it("accepts max run retention override from env", () => {
     const cfg = loadConfig({ OPENAI_API_KEY: "k", MAX_RUNS: "25" });
     expect(cfg.maxRuns).toBe(25);
+  });
+
+  it("accepts generation abuse-control overrides from env", () => {
+    const cfg = loadConfig({
+      OPENAI_API_KEY: "k",
+      MAX_ACTIVE_RUNS: "2",
+      GENERATION_RATE_LIMIT_WINDOW_MS: "30000",
+      GENERATION_RATE_LIMIT_MAX: "4"
+    });
+    expect(cfg.maxActiveRuns).toBe(2);
+    expect(cfg.generationRateLimitWindowMs).toBe(30_000);
+    expect(cfg.generationRateLimitMax).toBe(4);
   });
 
   it("accepts overrides from env", () => {

@@ -23,6 +23,9 @@ const testConfig = {
   port: 8787,
   requestTimeoutMs: 120_000,
   maxRuns: 100,
+  maxActiveRuns: 5,
+  generationRateLimitWindowMs: 60_000,
+  generationRateLimitMax: 10,
   trustProxy: false
 };
 

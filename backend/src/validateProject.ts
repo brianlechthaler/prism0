@@ -2,6 +2,7 @@ import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeProjectFiles, resolveProjectFilePath } from "./fileSafety.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,8 +57,8 @@ export async function validateGeneratedProject(
   await deps.fs.mkdir(runDir, { recursive: true });
 
   onLog(`Preparing validation workspace at ${runDir}`);
-  for (const [filename, content] of Object.entries(files)) {
-    const target = path.join(runDir, filename);
+  for (const [filename, content] of Object.entries(normalizeProjectFiles(files))) {
+    const target = resolveProjectFilePath(runDir, filename);
     await deps.fs.mkdir(path.dirname(target), { recursive: true });
     await deps.fs.writeFile(target, content, "utf8");
     onLog(`Wrote ${filename} (${content.length} chars)`);
@@ -66,10 +67,22 @@ export async function validateGeneratedProject(
   await copyConfigs(runDir, onLog, deps);
 
   onLog("Running ESLint on generated sources…");
-  const lintOutput = await execute("npm", ["run", "lint"], runDir, onLog, deps.spawn);
+  const lintOutput = await execute(
+    process.execPath,
+    [path.join(runDir, "node_modules/eslint/bin/eslint.js"), "."],
+    runDir,
+    onLog,
+    deps.spawn
+  );
 
   onLog("Running Vitest test suite for generated app…");
-  const testOutput = await execute("npm", ["run", "test"], runDir, onLog, deps.spawn);
+  const testOutput = await execute(
+    process.execPath,
+    [path.join(runDir, "node_modules/vitest/vitest.mjs"), "run"],
+    runDir,
+    onLog,
+    deps.spawn
+  );
 
   onLog("Validation finished successfully.");
   return { lintOutput, testOutput };
@@ -92,13 +105,20 @@ export async function copyHarnessConfigs(
   const targetModules = path.join(runDir, "node_modules");
   try {
     await deps.fs.access(modulesPath);
-    await deps.fs.symlink(modulesPath, targetModules, "dir");
-    onLog("Linked validation harness node_modules");
   } catch {
     onLog("Harness node_modules missing; installing tooling dependencies…");
     const execute = resolveExecuteCommand(deps);
-    await execute("npm", ["install"], runDir, onLog, deps.spawn);
+    await execute(
+      "npm",
+      ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+      deps.harnessRoot,
+      onLog,
+      deps.spawn
+    );
   }
+
+  await deps.fs.symlink(modulesPath, targetModules, "dir");
+  onLog("Linked validation harness node_modules");
 }
 
 export function runCommand(
@@ -111,7 +131,7 @@ export function runCommand(
   return new Promise((resolve, reject) => {
     const child = spawnImpl(command, args, {
       cwd,
-      env: process.env,
+      env: createValidationEnv(process.env),
       shell: process.platform === "win32"
     }) as ChildProcess;
 
@@ -144,4 +164,28 @@ export function runCommand(
       reject(new Error(`Command failed (${command} ${args.join(" ")}), exit ${code}:\n${combined}`));
     });
   });
+}
+
+export function createValidationEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const allowedKeys = [
+    "APPDATA",
+    "CI",
+    "ComSpec",
+    "FORCE_COLOR",
+    "HOME",
+    "LOCALAPPDATA",
+    "NO_COLOR",
+    "PATH",
+    "PATHEXT",
+    "SystemRoot",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "USERPROFILE",
+    "WINDIR"
+  ];
+  return Object.fromEntries(
+    allowedKeys.flatMap((key) => (env[key] === undefined ? [] : [[key, env[key]]]))
+  );
 }

@@ -8,7 +8,7 @@ const validPayload = {
     "index.js": "export function run() {}",
     "styles.css": "body {}",
     "index.test.js": "import { run } from './index.js'",
-    "package.json": "{}"
+    "package.json": '{"type":"module","scripts":{"test":"vitest run","lint":"eslint ."}}'
   }
 };
 
@@ -30,6 +30,48 @@ describe("parseGeneratedResponse", () => {
     const bad = { ...validPayload, files: { ...validPayload.files } };
     delete (bad.files as Record<string, string>)["index.test.js"];
     expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/index.test.js/);
+  });
+
+  it("throws when generated filenames are unsafe", () => {
+    const bad = {
+      ...validPayload,
+      files: { ...validPayload.files, "../escape.js": "export const bad = true;" }
+    };
+    expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/unsafe/);
+  });
+
+  it("throws when package scripts are unsafe", () => {
+    const bad = {
+      ...validPayload,
+      files: {
+        ...validPayload.files,
+        "package.json": '{"type":"module","scripts":{"test":"vitest run","lint":"eslint .","postinstall":"curl example.com"}}'
+      }
+    };
+    expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/scripts/);
+  });
+
+  it("throws when package type is not module", () => {
+    const bad = {
+      ...validPayload,
+      files: {
+        ...validPayload.files,
+        "package.json": '{"scripts":{"test":"vitest run","lint":"eslint ."}}'
+      }
+    };
+    expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/type/);
+  });
+
+  it("throws when package dependencies are declared", () => {
+    const bad = {
+      ...validPayload,
+      files: {
+        ...validPayload.files,
+        "package.json":
+          '{"type":"module","scripts":{"test":"vitest run","lint":"eslint ."},"dependencies":{"left-pad":"latest"}}'
+      }
+    };
+    expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/dependencies/);
   });
 
   it("throws when no JSON is present", () => {

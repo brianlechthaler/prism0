@@ -11,6 +11,9 @@ const config = {
   port: 8787,
   requestTimeoutMs: 120_000,
   maxRuns: 100,
+  maxActiveRuns: 5,
+  generationRateLimitWindowMs: 60_000,
+  generationRateLimitMax: 10,
   trustProxy: false
 };
 
@@ -21,7 +24,7 @@ const validPayload = {
     "index.js": "export const x = 1;",
     "styles.css": "body {}",
     "index.test.js": "import { x } from './index.js';",
-    "package.json": "{}"
+    "package.json": '{"type":"module","scripts":{"test":"vitest run","lint":"eslint ."}}'
   }
 };
 

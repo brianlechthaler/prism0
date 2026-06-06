@@ -47,6 +47,11 @@ export class RunStore {
     return run ? this.snapshot(run) : undefined;
   }
 
+  activeCount(): number {
+    return [...this.runs.values()].filter((run) => run.status === "pending" || run.status === "running")
+      .length;
+  }
+
   subscribe(id: string, subscriber: Subscriber): () => void {
     const run = this.runs.get(id);
     if (!run) throw new Error(`Run not found: ${id}`);

@@ -14,4 +14,8 @@ describe("createProjectZip", () => {
     expect(entries).toContain("index.html");
     expect(entries).toContain("index.js");
   });
+
+  it("rejects zip entries that could escape on extraction", () => {
+    expect(() => createProjectZip({ "../escape.js": "x" })).toThrow(/unsafe/);
+  });
 });

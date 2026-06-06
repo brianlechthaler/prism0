@@ -71,6 +71,21 @@ describe("RunStore", () => {
     expect(store.get(run.id)?.files["index.js"]).toBe("x");
   });
 
+  it("counts pending and running runs as active", () => {
+    const store = new RunStore();
+    const pending = store.create("pending");
+    const running = store.create("running");
+    const done = store.create("done");
+    const failed = store.create("failed");
+
+    store.setStatus(running.id, "running");
+    store.complete(done.id, { "index.html": "<html/>" });
+    store.fail(failed.id, "boom");
+
+    expect(store.activeCount()).toBe(2);
+    expect(store.get(pending.id)?.status).toBe("pending");
+  });
+
   it("prunes the oldest completed runs when retention is exceeded", () => {
     let currentTime = 0;
     const store = new RunStore({ maxRuns: 2, now: () => ++currentTime });
