@@ -74,6 +74,23 @@ describe("useGeneration", () => {
     }
   });
 
+  it("handles failed repair requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("project is not ready", { status: 409 }))
+    );
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.repair("source-1", "Error: boom");
+    });
+
+    expect(result.current.state.kind).toBe("error");
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.message).toBe("project is not ready");
+    }
+  });
+
   it("tracks logs and completion events", async () => {
     vi.stubGlobal(
       "fetch",
