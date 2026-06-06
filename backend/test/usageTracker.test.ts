@@ -87,6 +87,28 @@ describe("RunUsageTracker", () => {
     ]);
   });
 
+  it("finalizes calls that did not stream reasoning estimates", () => {
+    const tracker = new RunUsageTracker(100);
+    const callId = tracker.beginCall("runtime_fix");
+
+    const metrics = tracker.finalizeCall(callId, {
+      kind: "runtime_fix",
+      promptTokens: 7,
+      completionTokens: 2,
+      reasoningTokens: 0
+    });
+
+    expect(metrics.buckets).toEqual([
+      {
+        kind: "runtime_fix",
+        label: "LLM runtime fixes",
+        inputTokens: 7,
+        outputTokens: 2,
+        totalTokens: 9
+      }
+    ]);
+  });
+
   it("clamps observed thinking estimates to completion tokens", () => {
     const tracker = new RunUsageTracker(100);
     const callId = tracker.beginCall("json_fix");
