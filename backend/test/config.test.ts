@@ -10,6 +10,7 @@ describe("loadConfig", () => {
     expect(cfg.host).toBe("0.0.0.0");
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
+    expect(cfg.maxRuns).toBe(100);
     expect(cfg.corsOrigin).toBeUndefined();
     expect(cfg.trustProxy).toBe(false);
   });
@@ -17,6 +18,11 @@ describe("loadConfig", () => {
   it("accepts request timeout override from env", () => {
     const cfg = loadConfig({ OPENAI_API_KEY: "k", REQUEST_TIMEOUT_MS: "45000" });
     expect(cfg.requestTimeoutMs).toBe(45_000);
+  });
+
+  it("accepts max run retention override from env", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", MAX_RUNS: "25" });
+    expect(cfg.maxRuns).toBe(25);
   });
 
   it("accepts overrides from env", () => {

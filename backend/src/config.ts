@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   HOST: z.string().min(1).optional(),
   PORT: z.coerce.number().int().positive().optional(),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  MAX_RUNS: z.coerce.number().int().positive().optional(),
   CORS_ORIGIN: z.string().min(1).optional(),
   TRUST_PROXY: BooleanEnvSchema.optional()
 });
@@ -31,6 +32,7 @@ export type AppConfig = {
   host: string;
   port: number;
   requestTimeoutMs: number;
+  maxRuns: number;
   corsOrigin?: string;
   trustProxy: boolean;
 };
@@ -43,6 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     HOST: cli.host ?? env.HOST,
     PORT: cli.port ?? env.PORT,
     REQUEST_TIMEOUT_MS: env.REQUEST_TIMEOUT_MS,
+    MAX_RUNS: env.MAX_RUNS,
     CORS_ORIGIN: env.CORS_ORIGIN,
     TRUST_PROXY: env.TRUST_PROXY
   };
@@ -66,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     host: parsed.data.HOST ?? "0.0.0.0",
     port: parsed.data.PORT ?? 8787,
     requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000,
+    maxRuns: parsed.data.MAX_RUNS ?? 100,
     corsOrigin: parsed.data.CORS_ORIGIN,
     trustProxy: parsed.data.TRUST_PROXY ?? false
   };

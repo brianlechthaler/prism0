@@ -1,0 +1,28 @@
+name: Kubernetes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate-manifests:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Render Kustomize manifests
+        run: kubectl kustomize k8s > /tmp/prism0-k8s.yaml
+
+      - name: Dry-run default manifests
+        run: kubectl apply --dry-run=client --validate=false -f /tmp/prism0-k8s.yaml
+
+      - name: Dry-run optional manifests
+        run: |
+          kubectl apply --dry-run=client --validate=false -f k8s/secret.example.yaml
+          kubectl apply --dry-run=client --validate=false -f k8s/hpa.yaml

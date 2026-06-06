@@ -16,6 +16,7 @@ const testConfig = {
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
+  maxRuns: 100,
   trustProxy: false
 };
 

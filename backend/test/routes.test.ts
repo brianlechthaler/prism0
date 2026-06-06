@@ -10,6 +10,7 @@ const config = {
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
+  maxRuns: 100,
   trustProxy: false
 };
 
@@ -76,6 +77,8 @@ describe("registerRoutes", () => {
       controller.abort();
       await response.text().catch(() => "closed");
       expect(response.headers.get("content-type")).toContain("text/event-stream");
+      expect(response.headers.get("cache-control")).toBe("no-cache, no-transform");
+      expect(response.headers.get("x-accel-buffering")).toBe("no");
     });
   });
 

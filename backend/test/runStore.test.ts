@@ -71,6 +71,40 @@ describe("RunStore", () => {
     expect(store.get(run.id)?.files["index.js"]).toBe("x");
   });
 
+  it("prunes the oldest completed runs when retention is exceeded", () => {
+    let currentTime = 0;
+    const store = new RunStore({ maxRuns: 2, now: () => ++currentTime });
+    const oldRun = store.create("old");
+    const activeRun = store.create("active");
+
+    store.complete(oldRun.id, { "index.html": "<html/>" });
+    const newestRun = store.create("new");
+
+    expect(store.get(oldRun.id)).toBeUndefined();
+    expect(store.get(activeRun.id)?.status).toBe("pending");
+    expect(store.get(newestRun.id)?.status).toBe("pending");
+  });
+
+  it("prunes failed runs when retention is exceeded", () => {
+    const store = new RunStore({ maxRuns: 1 });
+    const failedRun = store.create("failed");
+
+    store.fail(failedRun.id, "boom");
+    const nextRun = store.create("next");
+
+    expect(store.get(failedRun.id)).toBeUndefined();
+    expect(store.get(nextRun.id)?.idea).toBe("next");
+  });
+
+  it("keeps active runs even when retention is exceeded", () => {
+    const store = new RunStore({ maxRuns: 1 });
+    const firstRun = store.create("first");
+    const secondRun = store.create("second");
+
+    expect(store.get(firstRun.id)?.idea).toBe("first");
+    expect(store.get(secondRun.id)?.idea).toBe("second");
+  });
+
   it("throws when run is missing", () => {
     const store = new RunStore();
     expect(() => store.subscribe("missing", () => {})).toThrow(/not found/i);

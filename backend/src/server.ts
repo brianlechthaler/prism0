@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 export function createApp(config = loadConfig(process.env, parseCliArgs(process.argv.slice(2)))) {
   const app = express();
-  const store = new RunStore();
+  const store = new RunStore({ maxRuns: config.maxRuns });
 
   app.set("trust proxy", config.trustProxy);
   app.use(securityHeaders);

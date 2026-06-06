@@ -27,6 +27,7 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `HOST` (optional, default: `0.0.0.0`)
 - `PORT` (optional, default: `8787`)
 - `REQUEST_TIMEOUT_MS` (optional, default: `120000`)
+- `MAX_RUNS` (optional, default: `100`; caps retained completed/failed run metadata per process)
 - `CORS_ORIGIN` (optional, unset by default; set only when serving the API cross-origin)
 - `TRUST_PROXY` (optional, default: `false`; set to `true` behind a trusted reverse proxy)
 
@@ -89,6 +90,31 @@ docker run --rm -p 8787:8787 -e OPENAI_API_KEY="your-key" prism0
 ```
 
 The image exposes port `8787` by default and includes a healthcheck for `/api/health`. Inject secrets with environment variables; do not bake them into the image.
+
+### Kubernetes and hosted platforms
+
+Production deployment assets are included for common targets:
+
+- Kubernetes manifests and Kustomize entrypoint: `k8s/`
+- Railway Docker deployment config: `railway.json`
+- Fly.io Docker deployment config: `fly.toml`
+- Render Docker web service blueprint: `render.yaml`
+
+See the full production deployment guide for shell, Docker, Kubernetes, Railway, Fly.io, and Render instructions:
+
+```text
+docs/production.md
+```
+
+Architecture, scaling, and reliability notes:
+
+```text
+docs/architecture.md
+```
+
+### CI and coverage
+
+GitHub Actions cover lint, tests with 100% coverage thresholds, TypeScript checks, production builds, Docker image builds, and Kubernetes manifest validation.
 
 ### Reverse proxy notes
 

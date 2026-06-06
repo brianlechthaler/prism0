@@ -28,6 +28,9 @@ RUN npm ci --omit=dev --ignore-scripts \
 COPY --from=build /app/backend/dist backend/dist
 COPY --from=build /app/frontend/dist frontend/dist
 COPY backend/validation-harness/eslint.config.js backend/validation-harness/vitest.config.js backend/validation-harness/
+RUN mkdir -p backend/validation-harness/runs \
+  && chown -R node:node /app
+USER node
 
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
