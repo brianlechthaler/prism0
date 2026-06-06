@@ -17,6 +17,12 @@ Type an idea (e.g. “make a tetris game”), and `prism0` will:
 npm install
 ```
 
+For Cursor/cloud-agent or CI-like bootstrap, install exact locked dependencies and optional local validation CLIs:
+
+```bash
+npm run bootstrap
+```
+
 ## Configure the model endpoint
 
 Backend reads configuration from env vars (or CLI flags — see below):

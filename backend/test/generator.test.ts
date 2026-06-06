@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as validateModule from "../src/validateProject.js";
 import { runGeneration, runRuntimeRepair } from "../src/generator.js";
 import { RunStore } from "../src/runStore.js";
@@ -24,6 +24,11 @@ const validPayload = {
     "package.json": "{}"
   }
 };
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("runGeneration", () => {
   it("completes successful runs", async () => {
@@ -56,6 +61,28 @@ describe("runGeneration", () => {
     expect(final?.logs.some((l) => l.includes("All checks passed"))).toBe(true);
   });
 
+  it("does not log stream milestones before thresholds are reached", async () => {
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
+      async (_config, _idea, handlers) => {
+        handlers.onReasoning?.("r");
+        handlers.onContent?.("c");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model reasoning stream");
+    expect(logs).not.toContain("Model content stream");
+  });
+
   it("logs heartbeat messages while waiting for the model", async () => {
     vi.useFakeTimers();
     vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
@@ -84,7 +111,6 @@ describe("runGeneration", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await pending;
 
-    vi.useRealTimers();
   });
 
   it("skips heartbeat logs after stream activity begins", async () => {
@@ -113,7 +139,6 @@ describe("runGeneration", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await pending;
 
-    vi.useRealTimers();
   });
 
   it("marks run failed for non-error throwables", async () => {
@@ -163,6 +188,27 @@ describe("runGeneration", () => {
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
     expect(final?.logs.some((l) => l.includes("JSON parse attempt 1/"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("does not log JSON fix milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    expect(store.get(run.id)?.logs.join("\n")).not.toContain("Model JSON fix stream");
   });
 
   it("fails after exhausting JSON parse retries", async () => {
@@ -232,6 +278,40 @@ describe("runGeneration", () => {
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
     expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("does not log validation fix milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return "{ bad json }";
+      }
+    );
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+
+    let validationCalls = 0;
+    vi.spyOn(validateModule, "validateGeneratedProject").mockImplementation(async () => {
+      validationCalls += 1;
+      if (validationCalls === 1) {
+        throw new Error("lint failed: unused var");
+      }
+      return { lintOutput: "ok", testOutput: "ok" };
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model fix stream");
+    expect(logs).not.toContain("Model JSON fix stream");
   });
 
   it("retries validation with model fixes until checks pass", async () => {
@@ -382,6 +462,41 @@ describe("runGeneration", () => {
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
     expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("does not log runtime repair milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromRuntimeError").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return "{ bad json }";
+      }
+    );
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runRuntimeRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "throw new Error('boom');" } },
+      "Error: boom"
+    );
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model runtime fix stream");
+    expect(logs).not.toContain("Model JSON fix stream");
   });
 
   it("marks runtime repair failed when the model throws", async () => {

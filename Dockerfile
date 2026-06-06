@@ -1,12 +1,14 @@
 FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
+RUN npm install -g npm@latest
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
-RUN npm ci
+RUN npm ci --ignore-scripts \
+  && npm ci --prefix backend/validation-harness
 
 COPY . .
 RUN npm run build
@@ -17,13 +19,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8787
+RUN npm install -g npm@latest
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
 RUN npm ci --omit=dev --ignore-scripts \
-  && npm install --include=dev --prefix backend/validation-harness
+  && npm ci --prefix backend/validation-harness
 
 COPY --from=build /app/backend/dist backend/dist
 COPY --from=build /app/frontend/dist frontend/dist

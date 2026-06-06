@@ -36,6 +36,11 @@ describe("parseGeneratedResponse", () => {
     expect(() => parseGeneratedResponse("not json")).toThrow(/Failed to parse/);
   });
 
+  it("throws for empty responses and empty fenced blocks", () => {
+    expect(() => parseGeneratedResponse("   ")).toThrow(/Failed to parse/);
+    expect(() => parseGeneratedResponse("```json\n\n```")).toThrow(/Failed to parse/);
+  });
+
   it("records non-error throwable messages while parsing", () => {
     const spy = vi.spyOn(JSON, "parse").mockImplementationOnce(() => {
       throw "bad";

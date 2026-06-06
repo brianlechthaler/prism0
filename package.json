@@ -16,6 +16,7 @@
     "start": "NODE_ENV=production npm start -w backend",
     "prod": "npm run build && npm run start",
     "deploy:prod": "./scripts/production.sh",
+    "bootstrap": "./scripts/bootstrap.sh",
     "test": "npm run test -w backend && npm run test -w frontend",
     "lint": "npm run lint -w backend && npm run lint -w frontend",
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend"

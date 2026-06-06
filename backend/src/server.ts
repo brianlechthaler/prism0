@@ -27,14 +27,21 @@ export function createApp(config = loadConfig(process.env, parseCliArgs(process.
 
   const staticDir = path.resolve(__dirname, "../../frontend/dist");
   app.use(express.static(staticDir));
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api/")) return next();
-    res.sendFile(path.join(staticDir, "index.html"), (err) => {
-      if (err) next();
-    });
-  });
+  app.get("*", (req, res, next) => sendIndexFallback(staticDir, req, res, next));
 
   return app;
+}
+
+export function sendIndexFallback(
+  staticDir: string,
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void {
+  if (req.path.startsWith("/api/")) return next();
+  res.sendFile(path.join(staticDir, "index.html"), (err) => {
+    if (err) next();
+  });
 }
 
 export function resolveCorsOrigins(origin: string): string | string[] {

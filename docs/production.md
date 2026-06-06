@@ -39,6 +39,12 @@ npm run build
 
 The backend and frontend Vitest configs enforce 100% line, function, branch, and statement coverage for source files.
 
+For Cursor/cloud-agent environments, use the bootstrap helper to install locked Node dependencies plus optional local validation CLIs:
+
+```bash
+npm run bootstrap
+```
+
 ## Run in a shell
 
 Use this on a VM, bare-metal server, or platform that runs shell commands directly.
@@ -79,6 +85,12 @@ docker run --rm \
   -p 8787:8787 \
   -e OPENAI_API_KEY="your-key" \
   prism0
+```
+
+If Docker is running without bridge networking in a restricted container, build with host networking:
+
+```bash
+sudo docker build --network=host -t prism0 .
 ```
 
 The image:
@@ -131,6 +143,13 @@ A straightforward deployment path is:
 kubectl apply -k k8s
 kubectl -n prism0 rollout status deployment/prism0
 kubectl -n prism0 get pods,svc,ingress
+```
+
+Validate manifests locally without a live cluster:
+
+```bash
+kubectl kustomize k8s > /tmp/prism0-k8s.yaml
+kubeconform -strict -summary /tmp/prism0-k8s.yaml k8s/secret.example.yaml k8s/hpa.yaml
 ```
 
 Update `k8s/ingress.yaml` before production:

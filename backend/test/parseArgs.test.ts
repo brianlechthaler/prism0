@@ -27,4 +27,8 @@ describe("parseCliArgs", () => {
   it("returns empty object when no flags are present", () => {
     expect(parseCliArgs([])).toEqual({});
   });
+
+  it("ignores flags that are missing values", () => {
+    expect(parseCliArgs(["--api-key", "--base-url", "--model", "--host", "--port"])).toEqual({});
+  });
 });

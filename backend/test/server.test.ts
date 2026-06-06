@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp, isMainModule, resolveCorsOrigins, startServer } from "../src/server.js";
+import {
+  createApp,
+  isMainModule,
+  resolveCorsOrigins,
+  sendIndexFallback,
+  startServer
+} from "../src/server.js";
 
 const distDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -121,6 +127,45 @@ describe("resolveCorsOrigins", () => {
       "https://one.example",
       "https://two.example"
     ]);
+  });
+});
+
+describe("sendIndexFallback", () => {
+  it("passes api routes through", () => {
+    const next = vi.fn();
+    const res = { sendFile: vi.fn() } as unknown as express.Response;
+
+    sendIndexFallback("/tmp/static", { path: "/api/missing" } as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.sendFile).not.toHaveBeenCalled();
+  });
+
+  it("sends index.html for frontend routes", () => {
+    const next = vi.fn();
+    const res = {
+      sendFile: vi.fn((_file: string, callback: (error?: Error) => void) => callback())
+    } as unknown as express.Response;
+
+    sendIndexFallback("/tmp/static", { path: "/app" } as express.Request, res, next);
+
+    expect(res.sendFile).toHaveBeenCalledWith(
+      path.join("/tmp/static", "index.html"),
+      expect.any(Function)
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("delegates index send errors", () => {
+    const next = vi.fn();
+    const error = new Error("missing index");
+    const res = {
+      sendFile: vi.fn((_file: string, callback: (error?: Error) => void) => callback(error))
+    } as unknown as express.Response;
+
+    sendIndexFallback("/tmp/static", { path: "/app" } as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });
 

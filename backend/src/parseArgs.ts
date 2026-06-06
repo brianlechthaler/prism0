@@ -12,20 +12,21 @@ export function parseCliArgs(argv: string[]): CliArgs {
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     const next = argv[i + 1];
+    const hasValue = Boolean(next && !next.startsWith("--"));
 
-    if (token === "--api-key" && next) {
+    if (token === "--api-key" && hasValue) {
       args.apiKey = next;
       i++;
-    } else if (token === "--base-url" && next) {
+    } else if (token === "--base-url" && hasValue) {
       args.baseUrl = next;
       i++;
-    } else if (token === "--model" && next) {
+    } else if (token === "--model" && hasValue) {
       args.model = next;
       i++;
-    } else if (token === "--host" && next) {
+    } else if (token === "--host" && hasValue) {
       args.host = next;
       i++;
-    } else if (token === "--port" && next) {
+    } else if (token === "--port" && hasValue) {
       args.port = Number(next);
       i++;
     }
