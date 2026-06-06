@@ -150,6 +150,34 @@ describe("registerRoutes", () => {
     });
   });
 
+  it("returns 404 for missing runtime repair source runs", async () => {
+    const { app } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom" })
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  it("rejects invalid runtime repair payloads", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "" })
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
   it("rejects runtime repair when the project is not ready", async () => {
     const { app, store } = createTestApp();
     const sourceRun = store.create("make app");

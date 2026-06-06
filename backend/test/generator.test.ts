@@ -349,4 +349,56 @@ describe("runGeneration", () => {
     expect(final?.logs.some((l) => l.includes("runtime repair"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("Runtime repair checks passed"))).toBe(true);
   });
+
+  it("retries JSON parsing when runtime repair returns invalid JSON", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromRuntimeError").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runRuntimeRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "throw new Error('boom');" } },
+      "Error: boom"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
+    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("marks runtime repair failed when the model throws", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromRuntimeError").mockRejectedValue(new Error("repair failed"));
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runRuntimeRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "throw new Error('boom');" } },
+      "Error: boom"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("repair failed");
+    expect(final?.logs.some((l) => l.includes("Runtime repair failed"))).toBe(true);
+  });
 });
