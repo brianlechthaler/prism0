@@ -29,8 +29,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   });
 
   app.post("/api/generate/:runId/fix", generationGuard, (req, res) => {
-    const runId = routeParam(req.params.runId);
-    const sourceRun = runId ? store.get(runId) : undefined;
+    const sourceRun = store.get(routeParam(req.params.runId) ?? "");
     if (!sourceRun) {
       res.status(404).send("Run not found");
       return;
@@ -63,11 +62,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   });
 
   app.get("/api/generate/:runId/events", (req, res) => {
-    const runId = routeParam(req.params.runId);
-    if (!runId) {
-      res.status(404).send("Run not found");
-      return;
-    }
+    const runId = routeParam(req.params.runId) ?? "";
     const run = store.get(runId);
     if (!run) {
       res.status(404).send("Run not found");
@@ -92,8 +87,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   });
 
   app.get("/api/project/:runId/download", (req, res) => {
-    const runId = routeParam(req.params.runId);
-    const run = runId ? store.get(runId) : undefined;
+    const run = store.get(routeParam(req.params.runId) ?? "");
     if (!run || run.status !== "done") {
       res.status(404).send("Project not ready");
       return;
