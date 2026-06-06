@@ -70,6 +70,7 @@ export class RunUsageTracker {
       this.firstOutputAt === undefined || this.lastOutputAt === undefined
         ? 0
         : Math.max((this.lastOutputAt - this.firstOutputAt) / 1000, 1);
+    const outputTokensPerSecond = outputTokens === 0 ? 0 : outputTokens / elapsedSeconds;
 
     return {
       inputTokens,
@@ -78,7 +79,7 @@ export class RunUsageTracker {
       contextWindowTokens: this.contextWindowTokens,
       contextUsedTokens: totalTokens,
       contextUsedPercent: Math.min(100, (totalTokens / this.contextWindowTokens) * 100),
-      outputTokensPerSecond: outputTokens / elapsedSeconds,
+      outputTokensPerSecond,
       buckets: buckets.map((bucket) => ({ ...bucket }))
     };
   }
