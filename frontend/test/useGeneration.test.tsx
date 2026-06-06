@@ -47,6 +47,84 @@ describe("useGeneration", () => {
     }
   });
 
+  it("starts repair runs for generated app runtime errors", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "repair-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.repair("source-1", "ReferenceError: count is not defined");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/fix", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ error: "ReferenceError: count is not defined" })
+    });
+    expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
+    expect(result.current.state.kind).toBe("generating");
+    if (result.current.state.kind === "generating") {
+      expect(result.current.state.runId).toBe("repair-1");
+    }
+  });
+
+  it("handles failed repair requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("project is not ready", { status: 409 }))
+    );
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.repair("source-1", "Error: boom");
+    });
+
+    expect(result.current.state.kind).toBe("error");
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.message).toBe("project is not ready");
+    }
+  });
+
+  it("closes an existing stream before starting a repair run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ runId: "source-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ runId: "repair-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        )
+    );
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    await act(async () => {
+      await result.current.repair("source-1", "Error: boom");
+    });
+
+    expect(source.close).toHaveBeenCalledTimes(1);
+    expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
+  });
+
   it("tracks logs and completion events", async () => {
     vi.stubGlobal(
       "fetch",

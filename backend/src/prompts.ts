@@ -101,6 +101,57 @@ Requirements:
 `;
 }
 
+export function buildRuntimeFixPrompt(
+  idea: string,
+  project: GeneratedProject,
+  runtimeError: string
+): string {
+  const filesJson = JSON.stringify(project.files, null, 2);
+
+  return `You are prism0, an expert frontend engineer fixing a generated browser app that crashes at runtime.
+
+Original app idea:
+"${idea}"
+
+Current project summary:
+"${project.summary}"
+
+The browser preview threw this critical runtime error:
+"""
+${runtimeError}
+"""
+
+Current project files:
+${filesJson}
+
+Fix the runtime crash above and any directly related defects. Return ONLY valid JSON (no markdown fences, no commentary) with this shape:
+{
+  "summary": "one sentence describing what you built",
+  "files": {
+    "index.html": "...",
+    "index.js": "...",
+    "styles.css": "...",
+    "index.test.js": "...",
+    "package.json": "{\\"type\\":\\"module\\",\\"scripts\\":{\\"test\\":\\"vitest run\\",\\"lint\\":\\"eslint .\\"}}"
+  }
+}
+
+JSON formatting rules (critical — invalid JSON will be rejected):
+1. Output must be a single JSON object starting with "{" and ending with "}".
+2. Use double quotes for all keys and string values; never use single quotes.
+3. Escape special characters inside strings: \\" for quotes, \\n for newlines, \\\\ for backslashes.
+4. No trailing commas, comments, or JavaScript syntax (no undefined, no unquoted keys).
+5. Do not wrap the JSON in markdown code fences or add any text before or after it.
+
+Requirements:
+1. Preserve the original app idea and working behavior unless it caused the runtime crash.
+2. Fix the reported runtime error and add or update tests that would catch the bug where practical.
+3. Keep vanilla HTML/CSS/JS with exported core logic in index.js for tests.
+4. Do not introduce unused variables, imports, or parameters.
+5. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
+`;
+}
+
 export function buildJsonFixPrompt(
   idea: string,
   parseError: string,

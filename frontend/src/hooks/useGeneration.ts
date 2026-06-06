@@ -43,25 +43,7 @@ export function useGeneration() {
     return () => eventSourceRef.current?.close();
   }, []);
 
-  const start = useCallback(async (idea: string) => {
-    eventSourceRef.current?.close();
-    setState({ kind: "generating", runId: "", logs: ["Starting…"] });
-
-    const res = await fetch("/api/generate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idea })
-    });
-
-    if (!res.ok) {
-      setState({ kind: "error", message: await res.text(), logs: [] });
-      return;
-    }
-
-    const json = (await res.json()) as { runId: string };
-    const runId = json.runId;
-    setState({ kind: "generating", runId, logs: ["Run created.", "Connecting to live progress…"] });
-
+  const connectToRun = useCallback((runId: string) => {
     const es = new EventSource(`/api/generate/${encodeURIComponent(runId)}/events`);
     eventSourceRef.current = es;
 
@@ -87,5 +69,65 @@ export function useGeneration() {
     };
   }, []);
 
-  return { state, start };
+  const start = useCallback(
+    async (idea: string) => {
+      eventSourceRef.current?.close();
+      setState({ kind: "generating", runId: "", logs: ["Starting…"] });
+
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea })
+      });
+
+      if (!res.ok) {
+        setState({ kind: "error", message: await res.text(), logs: [] });
+        return;
+      }
+
+      const json = (await res.json()) as { runId: string };
+      const runId = json.runId;
+      setState({
+        kind: "generating",
+        runId,
+        logs: ["Run created.", "Connecting to live progress…"]
+      });
+      connectToRun(runId);
+    },
+    [connectToRun]
+  );
+
+  const repair = useCallback(
+    async (runId: string, error: string) => {
+      eventSourceRef.current?.close();
+      setState({
+        kind: "generating",
+        runId: "",
+        logs: ["Requesting LLM repair for generated app crash…"]
+      });
+
+      const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error })
+      });
+
+      if (!res.ok) {
+        setState({ kind: "error", message: await res.text(), logs: [] });
+        return;
+      }
+
+      const json = (await res.json()) as { runId: string };
+      const repairRunId = json.runId;
+      setState({
+        kind: "generating",
+        runId: repairRunId,
+        logs: ["Repair run created.", "Connecting to live progress…"]
+      });
+      connectToRun(repairRunId);
+    },
+    [connectToRun]
+  );
+
+  return { state, start, repair };
 }

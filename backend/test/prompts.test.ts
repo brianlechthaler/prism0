@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildFixPrompt, buildGenerationPrompt, buildJsonFixPrompt } from "../src/prompts.js";
+import {
+  buildFixPrompt,
+  buildGenerationPrompt,
+  buildJsonFixPrompt,
+  buildRuntimeFixPrompt
+} from "../src/prompts.js";
 
 describe("buildGenerationPrompt", () => {
   it("includes the user idea and JSON requirements", () => {
@@ -38,5 +43,20 @@ describe("buildFixPrompt", () => {
     expect(prompt).toContain("lint failed: unused var");
     expect(prompt).toContain("export const x = 1;");
     expect(prompt).toContain("no-unused-vars");
+  });
+});
+
+describe("buildRuntimeFixPrompt", () => {
+  it("includes runtime errors and current project files", () => {
+    const project = {
+      summary: "counter app",
+      files: { "index.js": "throw new Error('boom');" }
+    };
+    const prompt = buildRuntimeFixPrompt("make counter", project, "ReferenceError: count is not defined");
+    expect(prompt).toContain("make counter");
+    expect(prompt).toContain("counter app");
+    expect(prompt).toContain("ReferenceError: count is not defined");
+    expect(prompt).toContain("throw new Error");
+    expect(prompt).toContain("runtime crash");
   });
 });

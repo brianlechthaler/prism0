@@ -118,4 +118,77 @@ describe("registerRoutes", () => {
       expect(json.runId).toBeTruthy();
     });
   });
+
+  it("starts runtime repair asynchronously", async () => {
+    const repairSpy = vi
+      .spyOn(await import("../src/generator.js"), "runRuntimeRepair")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom" })
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(json.runId).toBeTruthy();
+      expect(json.runId).not.toBe(sourceRun.id);
+      expect(repairSpy).toHaveBeenCalledWith(
+        config,
+        store,
+        json.runId,
+        "make app",
+        expect.objectContaining({
+          files: expect.objectContaining({ "index.js": "throw new Error();" })
+        }),
+        "Error: boom"
+      );
+    });
+  });
+
+  it("returns 404 for missing runtime repair source runs", async () => {
+    const { app } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom" })
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  it("rejects invalid runtime repair payloads", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "" })
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  it("rejects runtime repair when the project is not ready", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom" })
+      });
+      expect(res.status).toBe(409);
+    });
+  });
 });

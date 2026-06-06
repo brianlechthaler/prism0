@@ -1,6 +1,7 @@
 import type { AppConfig } from "./config.js";
 import {
   fixInvalidJsonResponse,
+  fixProjectFromRuntimeError,
   fixProjectFromValidationErrors,
   generateProjectFromIdea,
   type StreamHandlers
@@ -219,6 +220,68 @@ export async function runGeneration(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Run failed: ${message}`);
+    store.fail(runId, message);
+  }
+}
+
+export async function runRuntimeRepair(
+  config: AppConfig,
+  store: RunStore,
+  runId: string,
+  idea: string,
+  project: GeneratedProject,
+  runtimeError: string
+): Promise<void> {
+  try {
+    store.setStatus(runId, "running");
+    store.appendLog(runId, `[${timestamp()}] prism0 runtime repair ${runId} started`);
+    store.appendLog(runId, `[${timestamp()}] Repairing app idea: "${idea}"`);
+    store.appendLog(runId, `[${timestamp()}] Runtime error received: ${runtimeError}`);
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Requesting browser crash fixes from model ${config.openaiModel}…`
+    );
+
+    let fixStreamChars = 0;
+    const raw = await fixProjectFromRuntimeError(config, idea, project, runtimeError, {
+      onStreamOpen: () => {
+        store.appendLog(runId, `[${timestamp()}] Model repair stream connected…`);
+      },
+      onContent: (chunk) => {
+        fixStreamChars += chunk.length;
+        if (fixStreamChars % 500 < chunk.length) {
+          store.appendLog(
+            runId,
+            `[${timestamp()}] Model runtime fix stream… ${fixStreamChars} chars received`
+          );
+        }
+      }
+    });
+
+    store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
+    let repairedProject = await parseProjectWithRetries(config, store, runId, idea, raw, {
+      onContent: (chunk) => {
+        fixStreamChars += chunk.length;
+        if (fixStreamChars % 500 < chunk.length) {
+          store.appendLog(
+            runId,
+            `[${timestamp()}] Model JSON fix stream… ${fixStreamChars} chars received`
+          );
+        }
+      }
+    });
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Runtime repair summary: ${repairedProject.summary}`
+    );
+
+    repairedProject = await validateProjectWithRetries(config, store, runId, idea, repairedProject);
+
+    store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
+    store.complete(runId, repairedProject.files);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
     store.fail(runId, message);
   }
 }

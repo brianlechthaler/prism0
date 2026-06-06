@@ -3,15 +3,115 @@ import { Sandpack } from "@codesandbox/sandpack-react";
 import { useGeneration } from "../hooks/useGeneration";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
+export const PREVIEW_ERROR_MESSAGE_TYPE = "prism0-preview-error";
+
+type PreviewRuntimeError = {
+  type: typeof PREVIEW_ERROR_MESSAGE_TYPE;
+  runId: string;
+  message: string;
+  stack?: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
+};
+
+function isPreviewRuntimeError(data: unknown): data is PreviewRuntimeError {
+  if (!data || typeof data !== "object") return false;
+  const candidate = data as Partial<PreviewRuntimeError>;
+  return (
+    candidate.type === PREVIEW_ERROR_MESSAGE_TYPE &&
+    typeof candidate.runId === "string" &&
+    typeof candidate.message === "string"
+  );
+}
+
+export function formatPreviewRuntimeError(error: PreviewRuntimeError): string {
+  const location =
+    error.filename && error.lineno
+      ? `Location: ${error.filename}:${error.lineno}${error.colno ? `:${error.colno}` : ""}`
+      : undefined;
+
+  return [error.message, error.stack, location].filter(Boolean).join("\n");
+}
+
+function buildPreviewErrorReporter(runId: string): string {
+  return `<script>
+(function () {
+  var runId = ${JSON.stringify(runId)};
+  function send(message, detail) {
+    window.parent.postMessage(Object.assign({
+      type: ${JSON.stringify(PREVIEW_ERROR_MESSAGE_TYPE)},
+      runId: runId,
+      message: message || "Generated app crashed"
+    }, detail || {}), "*");
+  }
+
+  window.addEventListener("error", function (event) {
+    send(event.message, {
+      stack: event.error && event.error.stack,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno
+    });
+  });
+
+  window.addEventListener("unhandledrejection", function (event) {
+    var reason = event.reason;
+    send(reason && reason.message ? reason.message : String(reason || "Unhandled promise rejection"), {
+      stack: reason && reason.stack
+    });
+  });
+})();
+</script>`;
+}
+
+export function withPreviewErrorReporter(
+  files: Record<string, string>,
+  runId: string
+): Record<string, string> {
+  const html = files["index.html"];
+  if (!html || html.includes(PREVIEW_ERROR_MESSAGE_TYPE)) return files;
+
+  const reporter = buildPreviewErrorReporter(runId);
+  const insertionPoint = /<\/head>/i.test(html)
+    ? "</head>"
+    : /<\/body>/i.test(html)
+      ? "</body>"
+      : undefined;
+
+  return {
+    ...files,
+    "index.html": insertionPoint
+      ? html.replace(new RegExp(insertionPoint, "i"), `${reporter}\n${insertionPoint}`)
+      : `${reporter}\n${html}`
+  };
+}
 
 export function App() {
   const [idea, setIdea] = React.useState(DEFAULT_IDEA);
-  const { state, start } = useGeneration();
+  const [previewError, setPreviewError] = React.useState<PreviewRuntimeError | null>(null);
+  const { state, start, repair } = useGeneration();
   const logRef = useRef<HTMLDivElement | null>(null);
+  const activeRunId = "runId" in state ? state.runId : "";
 
   useEffect(() => {
     if (!logRef.current || !("logs" in state)) return;
     logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [state]);
+
+  useEffect(() => {
+    setPreviewError(null);
+  }, [activeRunId]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (!isPreviewRuntimeError(event.data)) return;
+      if (state.kind !== "ready" || event.data.runId !== state.runId) return;
+      setPreviewError(event.data);
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
   }, [state]);
 
   const downloadHref =
@@ -20,11 +120,13 @@ export function App() {
   const sandpackFiles = useMemo(() => {
     if (state.kind !== "ready") return undefined;
     const files: Record<string, string> = {};
-    for (const [k, v] of Object.entries(state.files)) {
+    for (const [k, v] of Object.entries(withPreviewErrorReporter(state.files, state.runId))) {
       files[`/${k}`] = v;
     }
     return files;
   }, [state]);
+
+  const previewErrorText = previewError ? formatPreviewRuntimeError(previewError) : undefined;
 
   return (
     <div className="page">
@@ -82,17 +184,31 @@ export function App() {
           <div className="panel panelEditor">
             <div className="panelTitle">Editor + Preview</div>
             {sandpackFiles ? (
-              <Sandpack
-                template="vanilla"
-                theme="dark"
-                files={sandpackFiles}
-                options={{
-                  showLineNumbers: true,
-                  wrapContent: true,
-                  editorHeight: 360,
-                  layout: "preview"
-                }}
-              />
+              <>
+                <Sandpack
+                  template="vanilla"
+                  theme="dark"
+                  files={sandpackFiles}
+                  options={{
+                    showLineNumbers: true,
+                    wrapContent: true,
+                    editorHeight: 360,
+                    layout: "preview"
+                  }}
+                />
+                {previewErrorText && state.kind === "ready" ? (
+                  <div className="runtimeError" role="alert">
+                    <div className="runtimeErrorTitle">Generated app crashed</div>
+                    <pre>{previewErrorText}</pre>
+                    <button
+                      className="btn runtimeFixButton"
+                      onClick={() => void repair(state.runId, previewErrorText)}
+                    >
+                      Fix with LLM
+                    </button>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <div className="placeholder">
                 When generation finishes, you’ll get a live editor + preview here.

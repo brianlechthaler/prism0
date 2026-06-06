@@ -2,11 +2,15 @@ import type { Express } from "express";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
-import { runGeneration } from "./generator.js";
+import { runGeneration, runRuntimeRepair } from "./generator.js";
 import type { RunStore } from "./runStore.js";
 
 const GenerateBodySchema = z.object({
   idea: z.string().trim().min(3).max(2000)
+});
+
+const RuntimeFixBodySchema = z.object({
+  error: z.string().trim().min(1).max(8000)
 });
 
 export function registerRoutes(app: Express, config: AppConfig, store: RunStore): void {
@@ -19,6 +23,39 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
 
     const run = store.create(parsed.data.idea);
     void runGeneration(config, store, run.id, parsed.data.idea);
+    res.json({ runId: run.id });
+  });
+
+  app.post("/api/generate/:runId/fix", (req, res) => {
+    const sourceRun = store.get(req.params.runId);
+    if (!sourceRun) {
+      res.status(404).send("Run not found");
+      return;
+    }
+
+    if (sourceRun.status !== "done" || Object.keys(sourceRun.files).length === 0) {
+      res.status(409).send("Project is not ready to repair");
+      return;
+    }
+
+    const parsed = RuntimeFixBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).send(parsed.error.issues.map((i) => i.message).join("; "));
+      return;
+    }
+
+    const run = store.create(sourceRun.idea);
+    void runRuntimeRepair(
+      config,
+      store,
+      run.id,
+      sourceRun.idea,
+      {
+        summary: `Runtime repair for run ${sourceRun.id}`,
+        files: sourceRun.files
+      },
+      parsed.data.error
+    );
     res.json({ runId: run.id });
   });
 
