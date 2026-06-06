@@ -401,4 +401,24 @@ describe("runGeneration", () => {
     expect(final?.error).toBe("repair failed");
     expect(final?.logs.some((l) => l.includes("Runtime repair failed"))).toBe(true);
   });
+
+  it("handles non-error runtime repair failures", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromRuntimeError").mockRejectedValue("plain repair failure");
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runRuntimeRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "throw new Error('boom');" } },
+      "Error: boom"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("plain repair failure");
+  });
 });
