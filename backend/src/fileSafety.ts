@@ -70,6 +70,7 @@ export function resolveProjectFilePath(rootDir: string, filename: string): strin
   const root = path.resolve(rootDir);
   const target = path.resolve(root, normalizeProjectFilePath(filename));
   const relative = path.relative(root, target);
+  /* v8 ignore next 3 -- normalizeProjectFilePath rejects escapes before this defense-in-depth check. */
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`Generated file path escapes validation workspace: ${filename}`);
   }

@@ -32,6 +32,12 @@ describe("parseGeneratedResponse", () => {
     expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/index.test.js/);
   });
 
+  it("throws when package.json is missing", () => {
+    const bad = { ...validPayload, files: { ...validPayload.files } };
+    delete (bad.files as Record<string, string>)["package.json"];
+    expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/package.json/);
+  });
+
   it("throws when generated filenames are unsafe", () => {
     const bad = {
       ...validPayload,
@@ -46,6 +52,17 @@ describe("parseGeneratedResponse", () => {
       files: {
         ...validPayload.files,
         "package.json": '{"type":"module","scripts":{"test":"vitest run","lint":"eslint .","postinstall":"curl example.com"}}'
+      }
+    };
+    expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/scripts/);
+  });
+
+  it("throws when package scripts are missing", () => {
+    const bad = {
+      ...validPayload,
+      files: {
+        ...validPayload.files,
+        "package.json": '{"type":"module"}'
       }
     };
     expect(() => parseGeneratedResponse(JSON.stringify(bad))).toThrow(/scripts/);

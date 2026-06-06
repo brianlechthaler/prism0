@@ -270,4 +270,19 @@ describe("createGenerationGuard", () => {
     expect(next).toHaveBeenCalledTimes(2);
     expect(res.status).not.toHaveBeenCalled();
   });
+
+  it("falls back to socket and unknown client keys", () => {
+    const guard = createGenerationGuard(config, new RunStore());
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      send: vi.fn(),
+      setHeader: vi.fn()
+    } as unknown as express.Response;
+    const next = vi.fn();
+
+    guard({ ip: "", socket: { remoteAddress: "socket-client" } } as express.Request, res, next);
+    guard({ ip: "", socket: {} } as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledTimes(2);
+  });
 });
