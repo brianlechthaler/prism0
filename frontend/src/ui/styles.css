@@ -111,12 +111,13 @@ body {
 
 .row {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
 }
 
 .input {
+  box-sizing: border-box;
   width: 100%;
   font-size: 15px;
   padding: 12px 12px;
@@ -126,11 +127,17 @@ body {
   color: var(--text);
   outline: none;
   transition: border-color 140ms ease, transform 140ms ease;
+  line-height: 1.45;
 }
 
 .input:focus {
   border-color: rgba(156, 255, 239, 0.45);
   transform: translateY(-1px);
+}
+
+.inputMultiline {
+  min-height: 124px;
+  resize: vertical;
 }
 
 .btn {
@@ -143,6 +150,7 @@ body {
   cursor: pointer;
   transition: transform 140ms ease, filter 140ms ease;
   min-width: 120px;
+  white-space: nowrap;
 }
 
 .btn:hover {
