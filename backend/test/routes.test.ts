@@ -290,7 +290,7 @@ describe("createGenerationGuard", () => {
 describe("routeParam", () => {
   it("returns strings and rejects non-single route params", () => {
     expect(routeParam("run-1")).toBe("run-1");
-    expect(routeParam(["run-1", "run-2"])).toBeUndefined();
-    expect(routeParam(undefined)).toBeUndefined();
+    expect(routeParam(["run-1", "run-2"])).toBe("");
+    expect(routeParam(undefined)).toBe("");
   });
 });
