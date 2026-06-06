@@ -85,6 +85,21 @@ describe("RunStore", () => {
     expect(store.get(newestRun.id)?.status).toBe("pending");
   });
 
+  it("stops pruning when enough completed runs were removed", () => {
+    let currentTime = 0;
+    const store = new RunStore({ maxRuns: 2, now: () => ++currentTime });
+    const oldRun = store.create("old");
+    const retainedRun = store.create("retained");
+
+    store.complete(oldRun.id, { "index.html": "old" });
+    store.complete(retainedRun.id, { "index.html": "retained" });
+    const newestRun = store.create("new");
+
+    expect(store.get(oldRun.id)).toBeUndefined();
+    expect(store.get(retainedRun.id)?.files["index.html"]).toBe("retained");
+    expect(store.get(newestRun.id)?.idea).toBe("new");
+  });
+
   it("prunes failed runs when retention is exceeded", () => {
     const store = new RunStore({ maxRuns: 1 });
     const failedRun = store.create("failed");
