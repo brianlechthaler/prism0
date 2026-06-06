@@ -92,10 +92,17 @@ export function withPreviewErrorReporter(
 
 export function App() {
   const [idea, setIdea] = React.useState(DEFAULT_IDEA);
+  const [isIdeaMultiline, setIsIdeaMultiline] = React.useState(false);
   const [previewError, setPreviewError] = React.useState<PreviewRuntimeError | null>(null);
   const { state, start, repair } = useGeneration();
   const logRef = useRef<HTMLDivElement | null>(null);
+  const ideaTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRunId = "runId" in state ? state.runId : "";
+
+  useEffect(() => {
+    if (!isIdeaMultiline) return;
+    ideaTextAreaRef.current?.focus();
+  }, [isIdeaMultiline]);
 
   useEffect(() => {
     if (!logRef.current || !("logs" in state)) return;
@@ -153,13 +160,26 @@ export function App() {
             What should we build?
           </label>
           <div className="row">
-            <input
-              id="idea"
-              className="input"
-              value={idea}
-              onChange={(e) => setIdea(e.target.value)}
-              placeholder='e.g. "make a tetris game"'
-            />
+            {isIdeaMultiline ? (
+              <textarea
+                id="idea"
+                ref={ideaTextAreaRef}
+                className="input inputMultiline"
+                value={idea}
+                onChange={(e) => setIdea(e.target.value)}
+                placeholder='e.g. "make a tetris game"'
+                rows={4}
+              />
+            ) : (
+              <input
+                id="idea"
+                className="input"
+                value={idea}
+                onChange={(e) => setIdea(e.target.value)}
+                onClick={() => setIsIdeaMultiline(true)}
+                placeholder='e.g. "make a tetris game"'
+              />
+            )}
             <button className="btn" onClick={() => void start(idea)} disabled={state.kind === "generating"}>
               {state.kind === "generating" ? "Generating…" : "Submit"}
             </button>
