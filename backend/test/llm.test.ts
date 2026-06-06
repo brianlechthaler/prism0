@@ -15,6 +15,7 @@ vi.mock("openai", () => ({
 import {
   createOpenAiClient,
   fixInvalidJsonResponse,
+  fixProjectFromRuntimeError,
   fixProjectFromValidationErrors,
   generateProjectFromIdea
 } from "../src/llm.js";
@@ -192,6 +193,26 @@ describe("llm", () => {
     const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
     expect(prompt).toContain("make tetris");
     expect(prompt).toContain("lint failed");
+  });
+
+  it("requests fixes using runtime error context", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const result = await fixProjectFromRuntimeError(
+      config,
+      "make counter",
+      { summary: "broken counter", files: { "index.js": "throw new Error('boom');" } },
+      "ReferenceError: count is not defined"
+    );
+
+    expect(result).toContain("fixed");
+    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("make counter");
+    expect(prompt).toContain("ReferenceError: count is not defined");
+    expect(prompt).toContain("runtime crash");
   });
 
   it("requests JSON fixes using parse error context", async () => {

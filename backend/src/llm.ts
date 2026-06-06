@@ -1,6 +1,11 @@
 import OpenAI from "openai";
 import type { AppConfig } from "./config.js";
-import { buildFixPrompt, buildGenerationPrompt, buildJsonFixPrompt } from "./prompts.js";
+import {
+  buildFixPrompt,
+  buildGenerationPrompt,
+  buildJsonFixPrompt,
+  buildRuntimeFixPrompt
+} from "./prompts.js";
 import type { GeneratedProject } from "./types.js";
 
 export type StreamHandlers = {
@@ -145,6 +150,20 @@ export async function fixProjectFromValidationErrors(
   return streamProjectCompletion(
     config,
     buildFixPrompt(idea, project, validationError),
+    handlers
+  );
+}
+
+export async function fixProjectFromRuntimeError(
+  config: AppConfig,
+  idea: string,
+  project: GeneratedProject,
+  runtimeError: string,
+  handlers: StreamHandlers = {}
+): Promise<string> {
+  return streamProjectCompletion(
+    config,
+    buildRuntimeFixPrompt(idea, project, runtimeError),
     handlers
   );
 }
