@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFixPrompt,
+  buildFollowUpPrompt,
   buildGenerationPrompt,
   buildJsonFixPrompt,
   buildRuntimeFixPrompt
@@ -14,6 +15,21 @@ describe("buildGenerationPrompt", () => {
     expect(prompt).toContain("index.test.js");
     expect(prompt).toContain("no-unused-vars");
     expect(prompt).toContain("JSON formatting rules");
+  });
+});
+
+describe("buildFollowUpPrompt", () => {
+  it("includes follow-up instructions and current project files", () => {
+    const project = {
+      summary: "counter app",
+      files: { "index.js": "export const count = 0;" }
+    };
+    const prompt = buildFollowUpPrompt("make counter", project, "add a reset button");
+    expect(prompt).toContain("make counter");
+    expect(prompt).toContain("counter app");
+    expect(prompt).toContain("add a reset button");
+    expect(prompt).toContain("export const count = 0;");
+    expect(prompt).toContain("complete updated project, not a diff");
   });
 });
 

@@ -2,6 +2,7 @@ import type { LlmCompletionUsage, LlmUsageBucket, LlmUsageKind, RunUsageMetrics 
 
 const USAGE_LABELS: Record<LlmUsageKind, string> = {
   generate: "LLM generate",
+  follow_up: "LLM follow-up",
   thinking: "LLM thinking",
   json_fix: "LLM JSON fixes",
   validation_fix: "LLM validation fixes",

@@ -50,6 +50,61 @@ Quality bar:
 `;
 }
 
+export function buildFollowUpPrompt(
+  idea: string,
+  project: GeneratedProject,
+  followUpPrompt: string
+): string {
+  const filesJson = JSON.stringify(project.files, null, 2);
+
+  return `You are prism0, an expert frontend engineer iterating on an existing generated browser app with test-driven development.
+
+Original app idea:
+"${idea}"
+
+Current project summary:
+"${project.summary}"
+
+The user wants this follow-up change implemented:
+"""
+${followUpPrompt}
+"""
+
+Current project files:
+${filesJson}
+
+Update the existing app to satisfy the follow-up request. Return the complete updated project, not a diff.
+
+Return ONLY valid JSON (no markdown fences, no commentary) with this shape:
+{
+  "summary": "one sentence describing what you built",
+  "files": {
+    "index.html": "...",
+    "index.js": "...",
+    "styles.css": "...",
+    "index.test.js": "...",
+    "package.json": "{\\"type\\":\\"module\\",\\"scripts\\":{\\"test\\":\\"vitest run\\",\\"lint\\":\\"eslint .\\"}}"
+  }
+}
+
+JSON formatting rules (critical — invalid JSON will be rejected):
+1. Output must be a single JSON object starting with "{" and ending with "}".
+2. Use double quotes for all keys and string values; never use single quotes.
+3. Escape special characters inside strings: \\" for quotes, \\n for newlines, \\\\ for backslashes.
+4. No trailing commas, comments, or JavaScript syntax (no undefined, no unquoted keys).
+5. Do not wrap the JSON in markdown code fences or add any text before or after it.
+
+Requirements:
+1. Preserve existing working behavior unless the follow-up explicitly changes it.
+2. Implement the follow-up request completely across HTML, CSS, JS, and tests as needed.
+3. Add or update meaningful Vitest tests in index.test.js for changed behavior.
+4. Keep vanilla HTML/CSS/JS with exported core logic in index.js for tests.
+5. Keep file paths relative and package.json scripts exactly {"test":"vitest run","lint":"eslint ."} with no dependencies or extra scripts.
+6. Do not introduce unused variables, imports, or parameters.
+7. Guard browser-only DOM setup in index.js so Vitest can import exported logic without a loaded page.
+`;
+}
+
 export function buildFixPrompt(
   idea: string,
   project: GeneratedProject,

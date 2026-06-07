@@ -91,6 +91,50 @@ describe("useGeneration", () => {
     }
   });
 
+  it("starts follow-up runs for generated app changes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "follow-up-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.followUp("source-1", "add a settings panel");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/follow-up", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "add a settings panel" })
+    });
+    expect(eventSources.at(-1)?.url).toContain("/api/generate/follow-up-1/events");
+    expect(result.current.state.kind).toBe("generating");
+    if (result.current.state.kind === "generating") {
+      expect(result.current.state.runId).toBe("follow-up-1");
+    }
+  });
+
+  it("handles failed follow-up requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("project is not ready", { status: 409 }))
+    );
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.followUp("source-1", "add settings");
+    });
+
+    expect(result.current.state.kind).toBe("error");
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.message).toBe("project is not ready");
+    }
+  });
+
   it("closes an existing stream before starting a repair run", async () => {
     vi.stubGlobal(
       "fetch",
@@ -123,6 +167,40 @@ describe("useGeneration", () => {
 
     expect(source.close).toHaveBeenCalledTimes(1);
     expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
+  });
+
+  it("closes an existing stream before starting a follow-up run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ runId: "source-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ runId: "follow-up-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        )
+    );
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    await act(async () => {
+      await result.current.followUp("source-1", "add settings");
+    });
+
+    expect(source.close).toHaveBeenCalledTimes(1);
+    expect(eventSources.at(-1)?.url).toContain("/api/generate/follow-up-1/events");
   });
 
   it("tracks logs and completion events", async () => {

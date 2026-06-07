@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type LlmUsageKind = "generate" | "thinking" | "json_fix" | "validation_fix" | "runtime_fix";
+export type LlmUsageKind =
+  | "generate"
+  | "follow_up"
+  | "thinking"
+  | "json_fix"
+  | "validation_fix"
+  | "runtime_fix";
 
 export type LlmUsageBucket = {
   kind: LlmUsageKind;
@@ -171,5 +177,37 @@ export function useGeneration() {
     [connectToRun]
   );
 
-  return { state, start, repair };
+  const followUp = useCallback(
+    async (runId: string, prompt: string) => {
+      eventSourceRef.current?.close();
+      setState({
+        kind: "generating",
+        runId: "",
+        logs: ["Requesting follow-up changes…"]
+      });
+
+      const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+
+      if (!res.ok) {
+        setState({ kind: "error", message: await res.text(), logs: [] });
+        return;
+      }
+
+      const json = (await res.json()) as { runId: string };
+      const followUpRunId = json.runId;
+      setState({
+        kind: "generating",
+        runId: followUpRunId,
+        logs: ["Follow-up run created.", "Connecting to live progress…"]
+      });
+      connectToRun(followUpRunId);
+    },
+    [connectToRun]
+  );
+
+  return { state, start, repair, followUp };
 }

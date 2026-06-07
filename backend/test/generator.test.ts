@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as validateModule from "../src/validateProject.js";
-import { runGeneration, runRuntimeRepair } from "../src/generator.js";
+import { runFollowUp, runGeneration, runRuntimeRepair } from "../src/generator.js";
 import { RunStore } from "../src/runStore.js";
 
 const config = {
@@ -444,6 +444,180 @@ describe("runGeneration", () => {
     expect(llm.fixProjectFromRuntimeError).toHaveBeenCalledTimes(1);
     expect(final?.logs.some((l) => l.includes("runtime repair"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("Runtime repair checks passed"))).toBe(true);
+  });
+
+  it("applies follow-up prompts and publishes updated files", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockImplementation(
+      async (_config, _idea, _project, _prompt, handlers) => {
+        handlers?.onStreamOpen?.();
+        handlers?.onContent?.("x".repeat(500));
+        handlers?.onUsage?.({
+          kind: "follow_up",
+          promptTokens: 90,
+          completionTokens: 20,
+          reasoningTokens: 0
+        });
+        return JSON.stringify({
+          ...validPayload,
+          summary: "updated counter",
+          files: { ...validPayload.files, "index.js": "export const reset = () => 0;" }
+        });
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make counter");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make counter",
+      { summary: "counter", files: { "index.js": "export const count = 0;" } },
+      "add a reset button"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(final?.files["index.js"]).toContain("reset");
+    expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["follow_up"]);
+    expect(final?.logs.some((l) => l.includes("follow-up run"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Model follow-up stream"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Follow-up checks passed"))).toBe(true);
+  });
+
+  it("retries JSON parsing when follow-up returns invalid JSON", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, idea, _invalid, _error, handlers) => {
+        expect(idea).toContain("Follow-up request: add keyboard shortcuts");
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make editor");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make editor",
+      { summary: "editor", files: { "index.js": "export const value = '';" } },
+      "add keyboard shortcuts"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
+    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("does not log follow-up JSON fix milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make app",
+      { summary: "app", files: { "index.js": "export const x = 1;" } },
+      "add settings"
+    );
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model JSON fix stream");
+  });
+
+  it("does not log follow-up milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockImplementation(
+      async (_config, _idea, _project, _prompt, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make app",
+      { summary: "app", files: { "index.js": "export const x = 1;" } },
+      "add settings"
+    );
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model follow-up stream");
+  });
+
+  it("marks follow-up runs failed when the model throws", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockRejectedValue("plain follow-up failure");
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make app",
+      { summary: "app", files: { "index.js": "export const x = 1;" } },
+      "add settings"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("plain follow-up failure");
+    expect(final?.logs.some((l) => l.includes("Follow-up failed"))).toBe(true);
+  });
+
+  it("marks follow-up runs failed for Error objects", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockRejectedValue(new Error("follow-up failed"));
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make app",
+      { summary: "app", files: { "index.js": "export const x = 1;" } },
+      "add settings"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("follow-up failed");
   });
 
   it("retries JSON parsing when runtime repair returns invalid JSON", async () => {
