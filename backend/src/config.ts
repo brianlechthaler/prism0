@@ -21,10 +21,10 @@ const EnvSchema = z.object({
 });
 
 export function formatConfigIssues(
-  issues: Array<{ path: Array<string | number>; message: string }>
+  issues: Array<{ path: Array<PropertyKey>; message: string }>
 ): string {
   return issues
-    .map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`)
+    .map((issue) => `${issue.path.map(String).join(".") || "env"}: ${issue.message}`)
     .join("; ");
 }
 
