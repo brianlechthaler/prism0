@@ -522,6 +522,35 @@ describe("runGeneration", () => {
     expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
   });
 
+  it("does not log follow-up JSON fix milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make app",
+      { summary: "app", files: { "index.js": "export const x = 1;" } },
+      "add settings"
+    );
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model JSON fix stream");
+  });
+
   it("does not log follow-up milestones before thresholds are reached", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "updateProjectFromFollowUp").mockImplementation(
@@ -569,6 +598,26 @@ describe("runGeneration", () => {
     expect(final?.status).toBe("error");
     expect(final?.error).toBe("plain follow-up failure");
     expect(final?.logs.some((l) => l.includes("Follow-up failed"))).toBe(true);
+  });
+
+  it("marks follow-up runs failed for Error objects", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "updateProjectFromFollowUp").mockRejectedValue(new Error("follow-up failed"));
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make app",
+      { summary: "app", files: { "index.js": "export const x = 1;" } },
+      "add settings"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("follow-up failed");
   });
 
   it("retries JSON parsing when runtime repair returns invalid JSON", async () => {
