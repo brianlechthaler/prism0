@@ -1,4 +1,10 @@
-export type LlmUsageKind = "generate" | "thinking" | "json_fix" | "validation_fix" | "runtime_fix";
+export type LlmUsageKind =
+  | "generate"
+  | "follow_up"
+  | "thinking"
+  | "json_fix"
+  | "validation_fix"
+  | "runtime_fix";
 
 export type LlmCompletionUsage = {
   kind: Exclude<LlmUsageKind, "thinking">;

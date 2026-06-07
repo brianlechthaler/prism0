@@ -225,6 +225,83 @@ describe("registerRoutes", () => {
     });
   });
 
+  it("starts follow-up runs asynchronously", async () => {
+    const followUpSpy = vi
+      .spyOn(await import("../src/generator.js"), "runFollowUp")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, {
+      "index.html": "<html></html>",
+      "index.js": "export const x = 1;"
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "add a settings panel" })
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(json.runId).toBeTruthy();
+      expect(json.runId).not.toBe(sourceRun.id);
+      expect(store.get(json.runId)?.idea).toContain("Follow-up request: add a settings panel");
+      expect(followUpSpy).toHaveBeenCalledWith(
+        config,
+        store,
+        json.runId,
+        "make app",
+        expect.objectContaining({
+          files: expect.objectContaining({ "index.js": "export const x = 1;" })
+        }),
+        "add a settings panel"
+      );
+    });
+  });
+
+  it("returns 404 for missing follow-up source runs", async () => {
+    const { app } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "add settings" })
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  it("rejects invalid follow-up payloads", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "" })
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  it("rejects follow-up runs when the project is not ready", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "add settings" })
+      });
+      expect(res.status).toBe(409);
+    });
+  });
+
   it("returns 404 for missing runtime repair source runs", async () => {
     const { app } = createTestApp();
 

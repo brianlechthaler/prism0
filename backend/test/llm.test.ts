@@ -21,7 +21,8 @@ import {
   fixInvalidJsonResponse,
   fixProjectFromRuntimeError,
   fixProjectFromValidationErrors,
-  generateProjectFromIdea
+  generateProjectFromIdea,
+  updateProjectFromFollowUp
 } from "../src/llm.js";
 
 const config = {
@@ -251,6 +252,26 @@ describe("llm", () => {
     const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
     expect(prompt).toContain("make tetris");
     expect(prompt).toContain("lint failed");
+  });
+
+  it("requests follow-up updates using existing project context", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: '{"summary":"updated","files":{}}' } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const result = await updateProjectFromFollowUp(
+      config,
+      "make counter",
+      { summary: "counter app", files: { "index.js": "export const count = 0;" } },
+      "add a reset button"
+    );
+
+    expect(result).toContain("updated");
+    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("make counter");
+    expect(prompt).toContain("add a reset button");
+    expect(prompt).toContain("export const count = 0;");
   });
 
   it("requests fixes using runtime error context", async () => {

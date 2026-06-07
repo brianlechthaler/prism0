@@ -4,6 +4,7 @@ import {
   fixProjectFromRuntimeError,
   fixProjectFromValidationErrors,
   generateProjectFromIdea,
+  updateProjectFromFollowUp,
   type StreamHandlers
 } from "./llm.js";
 import { parseGeneratedResponse } from "./parseGenerated.js";
@@ -240,6 +241,89 @@ export async function runGeneration(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Run failed: ${message}`);
+    store.fail(runId, message);
+  }
+}
+
+export async function runFollowUp(
+  config: AppConfig,
+  store: RunStore,
+  runId: string,
+  idea: string,
+  project: GeneratedProject,
+  followUpPrompt: string
+): Promise<void> {
+  const tracker = new RunUsageTracker(config.contextWindowTokens);
+  const augmentedIdea = `${idea}\n\nFollow-up request: ${followUpPrompt}`;
+
+  try {
+    store.setStatus(runId, "running");
+    store.appendLog(runId, `[${timestamp()}] prism0 follow-up run ${runId} started`);
+    store.appendLog(runId, `[${timestamp()}] Original app idea: "${idea}"`);
+    store.appendLog(runId, `[${timestamp()}] Follow-up prompt: "${followUpPrompt}"`);
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Requesting updates from model ${config.openaiModel}…`
+    );
+
+    let followUpStreamChars = 0;
+    const raw = await updateProjectFromFollowUp(
+      config,
+      idea,
+      project,
+      followUpPrompt,
+      trackLlmUsage(store, tracker, runId, "follow_up", {
+        onStreamOpen: () => {
+          store.appendLog(runId, `[${timestamp()}] Model follow-up stream connected…`);
+        },
+        onContent: (chunk) => {
+          followUpStreamChars += chunk.length;
+          if (followUpStreamChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model follow-up stream… ${followUpStreamChars} chars received`
+            );
+          }
+        }
+      })
+    );
+
+    store.appendLog(runId, `[${timestamp()}] Parsing follow-up JSON project payload…`);
+    let updatedProject = await parseProjectWithRetries(
+      config,
+      store,
+      tracker,
+      runId,
+      augmentedIdea,
+      raw,
+      {
+        onContent: (chunk) => {
+          followUpStreamChars += chunk.length;
+          if (followUpStreamChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model JSON fix stream… ${followUpStreamChars} chars received`
+            );
+          }
+        }
+      }
+    );
+    store.appendLog(runId, `[${timestamp()}] Follow-up summary: ${updatedProject.summary}`);
+
+    updatedProject = await validateProjectWithRetries(
+      config,
+      store,
+      tracker,
+      runId,
+      augmentedIdea,
+      updatedProject
+    );
+
+    store.appendLog(runId, `[${timestamp()}] Follow-up checks passed. Publishing updated files.`);
+    store.complete(runId, updatedProject.files);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Follow-up failed: ${message}`);
     store.fail(runId, message);
   }
 }

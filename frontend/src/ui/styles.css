@@ -193,6 +193,36 @@ body {
   filter: brightness(1.12);
 }
 
+.promptMode {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.promptMode legend {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+
+.promptMode label {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+}
+
+.promptMode input {
+  accent-color: var(--accent);
+}
+
 .grid {
   margin-top: 14px;
   display: grid;
@@ -280,6 +310,10 @@ body {
 
 .usageSegment-generate {
   background: #9cffef;
+}
+
+.usageSegment-follow_up {
+  background: #34d399;
 }
 
 .usageSegment-thinking {

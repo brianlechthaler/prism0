@@ -69,6 +69,8 @@ function buildPreviewErrorReporter(runId: string): string {
 </script>`;
 }
 
+type ReadySubmissionMode = "follow-up" | "new";
+
 export function withPreviewErrorReporter(
   files: Record<string, string>,
   runId: string
@@ -94,12 +96,17 @@ export function withPreviewErrorReporter(
 export function App() {
   const [idea, setIdea] = React.useState(DEFAULT_IDEA);
   const [isIdeaMultiline, setIsIdeaMultiline] = React.useState(false);
+  const [readySubmissionMode, setReadySubmissionMode] =
+    React.useState<ReadySubmissionMode>("follow-up");
   const [previewError, setPreviewError] = React.useState<PreviewRuntimeError | null>(null);
-  const { state, start, repair } = useGeneration();
+  const { state, start, repair, followUp } = useGeneration();
   const logRef = useRef<HTMLDivElement | null>(null);
   const ideaTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRunId = "runId" in state ? state.runId : "";
   const usage = "usage" in state ? state.usage : undefined;
+  const canFollowUp = state.kind === "ready";
+  const isGenerating = state.kind === "generating";
+  const trimmedIdea = idea.trim();
 
   useEffect(() => {
     if (!isIdeaMultiline) return;
@@ -114,6 +121,12 @@ export function App() {
   useEffect(() => {
     setPreviewError(null);
   }, [activeRunId]);
+
+  useEffect(() => {
+    if (state.kind !== "ready") return;
+    setIdea("");
+    setReadySubmissionMode("follow-up");
+  }, [state.kind, state.kind === "ready" ? state.runId : ""]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -139,6 +152,25 @@ export function App() {
   }, [state]);
 
   const previewErrorText = previewError ? formatPreviewRuntimeError(previewError) : undefined;
+  const promptLabel =
+    canFollowUp && readySubmissionMode === "follow-up"
+      ? "What should we add or change?"
+      : "What should we build?";
+  const submitLabel = isGenerating
+    ? "Generating…"
+    : canFollowUp && readySubmissionMode === "follow-up"
+      ? "Update app"
+      : "Submit";
+
+  const submitPrompt = () => {
+    if (!trimmedIdea) return;
+    if (state.kind === "ready" && readySubmissionMode === "follow-up") {
+      void followUp(state.runId, trimmedIdea);
+      return;
+    }
+
+    void start(trimmedIdea);
+  };
 
   return (
     <div className="page">
@@ -159,7 +191,7 @@ export function App() {
       <main className="main">
         <section className="card">
           <label className="label" htmlFor="idea">
-            What should we build?
+            {promptLabel}
           </label>
           <div className="row">
             {isIdeaMultiline ? (
@@ -169,7 +201,11 @@ export function App() {
                 className="input inputMultiline"
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
-                placeholder='e.g. "make a tetris game"'
+                placeholder={
+                  canFollowUp && readySubmissionMode === "follow-up"
+                    ? 'e.g. "add keyboard controls and a score history"'
+                    : 'e.g. "make a tetris game"'
+                }
                 rows={4}
               />
             ) : (
@@ -179,13 +215,41 @@ export function App() {
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
                 onClick={() => setIsIdeaMultiline(true)}
-                placeholder='e.g. "make a tetris game"'
+                placeholder={
+                  canFollowUp && readySubmissionMode === "follow-up"
+                    ? 'e.g. "add keyboard controls and a score history"'
+                    : 'e.g. "make a tetris game"'
+                }
               />
             )}
-            <button className="btn" onClick={() => void start(idea)} disabled={state.kind === "generating"}>
-              {state.kind === "generating" ? "Generating…" : "Submit"}
+            <button className="btn" onClick={submitPrompt} disabled={isGenerating || !trimmedIdea}>
+              {submitLabel}
             </button>
           </div>
+
+          {canFollowUp ? (
+            <fieldset className="promptMode" aria-label="Prompt behavior">
+              <legend>Use this prompt to:</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="prompt-mode"
+                  checked={readySubmissionMode === "follow-up"}
+                  onChange={() => setReadySubmissionMode("follow-up")}
+                />
+                Update the current app
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="prompt-mode"
+                  checked={readySubmissionMode === "new"}
+                  onChange={() => setReadySubmissionMode("new")}
+                />
+                Start a new app instead
+              </label>
+            </fieldset>
+          ) : null}
 
           <div className="metaRow">
             <div className="pill">{state.kind === "idle" ? "idle" : state.kind}</div>

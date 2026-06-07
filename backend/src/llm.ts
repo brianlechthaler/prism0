@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { AppConfig } from "./config.js";
 import {
   buildFixPrompt,
+  buildFollowUpPrompt,
   buildGenerationPrompt,
   buildJsonFixPrompt,
   buildRuntimeFixPrompt
@@ -169,6 +170,21 @@ export async function generateProjectFromIdea(
   handlers: StreamHandlers = {}
 ): Promise<string> {
   return streamProjectCompletion(config, buildGenerationPrompt(idea), "generate", handlers);
+}
+
+export async function updateProjectFromFollowUp(
+  config: AppConfig,
+  idea: string,
+  project: GeneratedProject,
+  followUpPrompt: string,
+  handlers: StreamHandlers = {}
+): Promise<string> {
+  return streamProjectCompletion(
+    config,
+    buildFollowUpPrompt(idea, project, followUpPrompt),
+    "follow_up",
+    handlers
+  );
 }
 
 export async function fixProjectFromValidationErrors(

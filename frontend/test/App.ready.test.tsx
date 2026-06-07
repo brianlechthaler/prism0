@@ -1,7 +1,13 @@
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { App } from "../src/ui/App";
+
+const { followUp, repair, start } = vi.hoisted(() => ({
+  followUp: vi.fn(),
+  repair: vi.fn(),
+  start: vi.fn()
+}));
 
 vi.mock("@codesandbox/sandpack-react", () => ({
   Sandpack: () => <div data-testid="sandpack">sandpack</div>
@@ -21,14 +27,43 @@ vi.mock("../src/hooks/useGeneration", () => ({
         "package.json": "{}"
       }
     },
-    start: vi.fn()
+    start,
+    repair,
+    followUp
   })
 }));
 
 describe("App ready state", () => {
+  beforeEach(() => {
+    followUp.mockClear();
+    repair.mockClear();
+    start.mockClear();
+  });
+
   it("shows download link and sandpack editor", async () => {
     render(<App />);
     expect(screen.getByText(/download zip/i)).toBeInTheDocument();
     expect(await screen.findByTestId("sandpack")).toBeInTheDocument();
+  });
+
+  it("submits ready-state prompts as follow-up changes by default", async () => {
+    render(<App />);
+    const prompt = screen.getByLabelText(/what should we add or change/i);
+    fireEvent.change(prompt, { target: { value: "add a settings panel" } });
+    fireEvent.click(screen.getByRole("button", { name: /update app/i }));
+
+    expect(followUp).toHaveBeenCalledWith("abc", "add a settings panel");
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("can use ready-state prompts to start a new app instead", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByLabelText(/start a new app instead/i));
+    const prompt = screen.getByLabelText(/what should we build/i);
+    fireEvent.change(prompt, { target: { value: "make a drawing app" } });
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+
+    expect(start).toHaveBeenCalledWith("make a drawing app");
+    expect(followUp).not.toHaveBeenCalled();
   });
 });

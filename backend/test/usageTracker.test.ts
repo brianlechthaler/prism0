@@ -109,6 +109,28 @@ describe("RunUsageTracker", () => {
     ]);
   });
 
+  it("labels follow-up usage buckets", () => {
+    const tracker = new RunUsageTracker(100);
+    const callId = tracker.beginCall("follow_up");
+
+    const metrics = tracker.finalizeCall(callId, {
+      kind: "follow_up",
+      promptTokens: 5,
+      completionTokens: 3,
+      reasoningTokens: 0
+    });
+
+    expect(metrics.buckets).toEqual([
+      {
+        kind: "follow_up",
+        label: "LLM follow-up",
+        inputTokens: 5,
+        outputTokens: 3,
+        totalTokens: 8
+      }
+    ]);
+  });
+
   it("clamps observed thinking estimates to completion tokens", () => {
     const tracker = new RunUsageTracker(100);
     const callId = tracker.beginCall("json_fix");
