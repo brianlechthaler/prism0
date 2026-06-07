@@ -27,7 +27,7 @@
     "@typescript-eslint/eslint-plugin": "^8.35.0",
     "@typescript-eslint/parser": "^8.35.0",
     "@vitest/coverage-v8": "^4.1.8",
-    "eslint": "^9.8.0",
+    "eslint": "^10.4.1",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
