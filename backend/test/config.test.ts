@@ -113,4 +113,10 @@ describe("formatConfigIssues", () => {
   it("labels empty paths as env", () => {
     expect(formatConfigIssues([{ path: [], message: "root issue" }])).toBe("env: root issue");
   });
+
+  it("formats Zod v4 property key paths", () => {
+    expect(
+      formatConfigIssues([{ path: ["nested", 0, Symbol.for("field")], message: "bad value" }])
+    ).toBe("nested.0.Symbol(field): bad value");
+  });
 });
