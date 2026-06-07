@@ -335,6 +335,22 @@ describe("registerRoutes", () => {
     });
   });
 
+  it("rejects unconfigured follow-up models", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "add settings", model: "missing" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
+    });
+  });
+
   it("rejects follow-up runs when the project is not ready", async () => {
     const { app, store } = createTestApp();
     const sourceRun = store.create("make app");
@@ -374,6 +390,22 @@ describe("registerRoutes", () => {
         body: JSON.stringify({ error: "" })
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  it("rejects unconfigured runtime repair models", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom", model: "missing" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
     });
   });
 

@@ -486,14 +486,12 @@ function withModelAttemptLogs(
           `[${timestamp()}] Trying model ${model} (${attempt}/${totalAttempts})…`
         );
       }
-      handlers.onModelAttempt?.(model, attempt, totalAttempts);
     },
     onModelFallback: (failedModel, error, nextModel) => {
       store.appendLog(
         runId,
         `[${timestamp()}] Model ${failedModel} failed: ${error}. Trying fallback ${nextModel}…`
       );
-      handlers.onModelFallback?.(failedModel, error, nextModel);
     }
   };
 }

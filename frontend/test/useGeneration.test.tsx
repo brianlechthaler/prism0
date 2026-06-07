@@ -418,4 +418,60 @@ describe("useModelOptions", () => {
     });
     expect(result.current.error).toBe("unavailable");
   });
+
+  it("reports non-error model option failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue("network down"));
+
+    const { result } = renderHook(() => useModelOptions());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+    expect(result.current.error).toBe("network down");
+  });
+
+  it("ignores model option success after unmount", async () => {
+    let resolveFetch: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          })
+      )
+    );
+
+    const { unmount } = renderHook(() => useModelOptions());
+    unmount();
+
+    await act(async () => {
+      resolveFetch(
+        new Response(JSON.stringify({ defaultModel: "model-a", models: ["model-a"] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    });
+  });
+
+  it("ignores model option failures after unmount", async () => {
+    let rejectFetch: (error: unknown) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectFetch = reject;
+          })
+      )
+    );
+
+    const { unmount } = renderHook(() => useModelOptions());
+    unmount();
+
+    await act(async () => {
+      rejectFetch(new Error("late failure"));
+    });
+  });
 });

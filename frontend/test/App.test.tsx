@@ -1,25 +1,34 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../src/ui/App";
+import type { ModelOptionsState } from "../src/hooks/useGeneration";
 
-const start = vi.fn();
-
-vi.mock("../src/hooks/useGeneration", () => ({
-  useModelOptions: () => ({
+const mocks = vi.hoisted(() => ({
+  modelOptions: {
     defaultModel: "model-a",
     models: ["model-a", "model-b"],
     isLoading: false
-  }),
+  } as ModelOptionsState,
+  start: vi.fn()
+}));
+
+vi.mock("../src/hooks/useGeneration", () => ({
+  useModelOptions: () => mocks.modelOptions,
   useGeneration: () => ({
     state: { kind: "idle" },
-    start
+    start: mocks.start
   })
 }));
 
 describe("App", () => {
   beforeEach(() => {
-    start.mockClear();
+    mocks.modelOptions = {
+      defaultModel: "model-a",
+      models: ["model-a", "model-b"],
+      isLoading: false
+    };
+    mocks.start.mockClear();
   });
 
   it("renders idea input and submit button", () => {
@@ -44,7 +53,7 @@ describe("App", () => {
       target: { value: "make pong" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(start).toHaveBeenCalledWith("make pong", "model-a");
+    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-a");
   });
 
   it("submits the selected model", () => {
@@ -56,7 +65,62 @@ describe("App", () => {
       target: { value: "model-b" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(start).toHaveBeenCalledWith("make pong", "model-b");
+    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-b");
+  });
+
+  it("resets a stale selected model when options change", async () => {
+    const view = render(<App />);
+    fireEvent.change(screen.getByLabelText(/model/i), {
+      target: { value: "model-b" }
+    });
+    expect(screen.getByLabelText(/model/i)).toHaveValue("model-b");
+
+    mocks.modelOptions = {
+      defaultModel: "model-a",
+      models: ["model-a"],
+      isLoading: false
+    };
+    view.rerender(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/model/i)).toHaveValue("model-a");
+    });
+  });
+
+  it("resets a stale selected model to the first option when no default exists", async () => {
+    const view = render(<App />);
+    fireEvent.change(screen.getByLabelText(/model/i), {
+      target: { value: "model-b" }
+    });
+
+    mocks.modelOptions = {
+      defaultModel: "",
+      models: ["model-c"],
+      isLoading: false
+    };
+    view.rerender(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/model/i)).toHaveValue("model-c");
+    });
+  });
+
+  it("clears a stale selected model when no options remain", async () => {
+    const view = render(<App />);
+    fireEvent.change(screen.getByLabelText(/model/i), {
+      target: { value: "model-b" }
+    });
+
+    mocks.modelOptions = {
+      defaultModel: "",
+      models: [],
+      isLoading: false
+    };
+    view.rerender(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/model/i)).toBeDisabled();
+    });
   });
 
   it("submits multiline ideas from the paragraph field", () => {
@@ -66,6 +130,6 @@ describe("App", () => {
       target: { value: "make pong\nwith neon particles" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a");
+    expect(mocks.start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a");
   });
 });

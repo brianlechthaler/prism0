@@ -113,6 +113,24 @@ describe("llm", () => {
     expect(onModelFallback).toHaveBeenCalledWith("fallback", "selected unavailable", "primary");
   });
 
+  it("reports non-error fallback failures as strings", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: "ok" } }] };
+    }
+
+    createMock.mockRejectedValueOnce("plain failure").mockResolvedValueOnce(mockStream());
+    const onModelFallback = vi.fn();
+
+    await generateProjectFromIdea(
+      { ...config, openaiModels: ["primary", "fallback"] },
+      "make app",
+      { onModelFallback },
+      { selectedModel: "fallback" }
+    );
+
+    expect(onModelFallback).toHaveBeenCalledWith("fallback", "plain failure", "primary");
+  });
+
   it("reports final stream usage with reasoning token details", async () => {
     async function* mockStream() {
       yield { choices: [{ delta: { content: "hello" } }] };
