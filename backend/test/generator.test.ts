@@ -7,6 +7,7 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  openaiModels: ["m"],
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,

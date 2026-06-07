@@ -4,6 +4,11 @@ import { render, screen } from "@testing-library/react";
 import { App } from "../src/ui/App";
 
 vi.mock("../src/hooks/useGeneration", () => ({
+  useModelOptions: () => ({
+    defaultModel: "model-a",
+    models: ["model-a", "model-b"],
+    isLoading: false
+  }),
   useGeneration: () => ({
     state: {
       kind: "generating",

@@ -6,19 +6,26 @@ import { runFollowUp, runGeneration, runRuntimeRepair } from "./generator.js";
 import type { RunStore } from "./runStore.js";
 
 const GenerateBodySchema = z.object({
-  idea: z.string().trim().min(3).max(2000)
+  idea: z.string().trim().min(3).max(2000),
+  model: z.string().trim().min(1).max(200).optional()
 });
 
 const RuntimeFixBodySchema = z.object({
-  error: z.string().trim().min(1).max(8000)
+  error: z.string().trim().min(1).max(8000),
+  model: z.string().trim().min(1).max(200).optional()
 });
 
 const FollowUpBodySchema = z.object({
-  prompt: z.string().trim().min(3).max(2000)
+  prompt: z.string().trim().min(3).max(2000),
+  model: z.string().trim().min(1).max(200).optional()
 });
 
 export function registerRoutes(app: Express, config: AppConfig, store: RunStore): void {
   const generationGuard = createGenerationGuard(config, store);
+
+  app.get("/api/models", (_req, res) => {
+    res.json({ defaultModel: config.openaiModel, models: config.openaiModels });
+  });
 
   app.post("/api/generate", generationGuard, (req, res) => {
     const parsed = GenerateBodySchema.safeParse(req.body);
@@ -27,8 +34,14 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const selectedModel = validateSelectedModel(config, parsed.data.model);
+    if (selectedModel instanceof Error) {
+      res.status(400).send(selectedModel.message);
+      return;
+    }
+
     const run = store.create(parsed.data.idea);
-    void runGeneration(config, store, run.id, parsed.data.idea);
+    void runGeneration(config, store, run.id, parsed.data.idea, selectedModel);
     res.json({ runId: run.id });
   });
 
@@ -50,6 +63,12 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const selectedModel = validateSelectedModel(config, parsed.data.model);
+    if (selectedModel instanceof Error) {
+      res.status(400).send(selectedModel.message);
+      return;
+    }
+
     const followUpIdea = `${sourceRun.idea}\n\nFollow-up request: ${parsed.data.prompt}`;
     const run = store.create(followUpIdea);
     void runFollowUp(
@@ -61,7 +80,8 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
         summary: `Generated app from run ${sourceRun.id}`,
         files: sourceRun.files
       },
-      parsed.data.prompt
+      parsed.data.prompt,
+      selectedModel
     );
     res.json({ runId: run.id });
   });
@@ -84,6 +104,12 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const selectedModel = validateSelectedModel(config, parsed.data.model);
+    if (selectedModel instanceof Error) {
+      res.status(400).send(selectedModel.message);
+      return;
+    }
+
     const run = store.create(sourceRun.idea);
     void runRuntimeRepair(
       config,
@@ -94,7 +120,8 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
         summary: `Runtime repair for run ${sourceRun.id}`,
         files: sourceRun.files
       },
-      parsed.data.error
+      parsed.data.error,
+      selectedModel
     );
     res.json({ runId: run.id });
   });
@@ -183,4 +210,12 @@ function clientRateLimitKey(req: Request): string {
 
 export function routeParam(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
+}
+
+export function validateSelectedModel(config: AppConfig, model?: string): string | undefined | Error {
+  if (!model) return undefined;
+  if (config.openaiModels.includes(model)) return model;
+  return new Error(
+    `Model "${model}" is not configured. Available models: ${config.openaiModels.join(", ")}`
+  );
 }

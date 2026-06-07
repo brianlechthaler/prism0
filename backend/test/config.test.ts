@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatConfigIssues, loadConfig } from "../src/config.js";
+import { formatConfigIssues, loadConfig, parseModelList } from "../src/config.js";
 
 describe("loadConfig", () => {
   it("defaults base URL/model/port", () => {
@@ -7,6 +7,7 @@ describe("loadConfig", () => {
     expect(cfg.openaiApiKey).toBe("k");
     expect(cfg.openaiBaseUrl).toBe("https://api.openai.com/v1");
     expect(cfg.openaiModel).toBe("gpt-4.1-mini");
+    expect(cfg.openaiModels).toEqual(["gpt-4.1-mini"]);
     expect(cfg.host).toBe("0.0.0.0");
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
@@ -51,6 +52,7 @@ describe("loadConfig", () => {
       OPENAI_API_KEY: "k",
       OPENAI_BASE_URL: "https://example.com/v1",
       OPENAI_MODEL: "m",
+      OPENAI_MODELS: "m, fallback-a, fallback-b",
       HOST: "127.0.0.1",
       PORT: "9999",
       CORS_ORIGIN: "https://app.example",
@@ -58,6 +60,7 @@ describe("loadConfig", () => {
     });
     expect(cfg.openaiBaseUrl).toBe("https://example.com/v1");
     expect(cfg.openaiModel).toBe("m");
+    expect(cfg.openaiModels).toEqual(["m", "fallback-a", "fallback-b"]);
     expect(cfg.host).toBe("127.0.0.1");
     expect(cfg.port).toBe(9999);
     expect(cfg.corsOrigin).toBe("https://app.example");
@@ -89,6 +92,7 @@ describe("loadConfig", () => {
     expect(cfg.openaiApiKey).toBe("cli");
     expect(cfg.openaiBaseUrl).toBe("https://cli.example/v1");
     expect(cfg.openaiModel).toBe("cli-model");
+    expect(cfg.openaiModels).toEqual(["cli-model"]);
     expect(cfg.host).toBe("cli-host");
     expect(cfg.port).toBe(2222);
   });
@@ -106,6 +110,16 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ OPENAI_API_KEY: "k", OPENAI_BASE_URL: "not-a-url" })).toThrow(
       /OPENAI_BASE_URL/
     );
+  });
+});
+
+describe("parseModelList", () => {
+  it("keeps the default model first and removes duplicates", () => {
+    expect(parseModelList("primary", "fallback, primary, fallback, other")).toEqual([
+      "primary",
+      "fallback",
+      "other"
+    ]);
   });
 });
 

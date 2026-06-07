@@ -6,6 +6,11 @@ import { App } from "../src/ui/App";
 const start = vi.fn();
 
 vi.mock("../src/hooks/useGeneration", () => ({
+  useModelOptions: () => ({
+    defaultModel: "model-a",
+    models: ["model-a", "model-b"],
+    isLoading: false
+  }),
   useGeneration: () => ({
     state: { kind: "idle" },
     start
@@ -20,6 +25,7 @@ describe("App", () => {
   it("renders idea input and submit button", () => {
     render(<App />);
     expect(screen.getByLabelText(/what should we build/i).tagName).toBe("INPUT");
+    expect(screen.getByLabelText(/model/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
   });
 
@@ -38,7 +44,19 @@ describe("App", () => {
       target: { value: "make pong" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(start).toHaveBeenCalledWith("make pong");
+    expect(start).toHaveBeenCalledWith("make pong", "model-a");
+  });
+
+  it("submits the selected model", () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/what should we build/i), {
+      target: { value: "make pong" }
+    });
+    fireEvent.change(screen.getByLabelText(/model/i), {
+      target: { value: "model-b" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+    expect(start).toHaveBeenCalledWith("make pong", "model-b");
   });
 
   it("submits multiline ideas from the paragraph field", () => {
@@ -48,6 +66,6 @@ describe("App", () => {
       target: { value: "make pong\nwith neon particles" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(start).toHaveBeenCalledWith("make pong\nwith neon particles");
+    expect(start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a");
   });
 });

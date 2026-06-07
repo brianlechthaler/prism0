@@ -24,6 +24,11 @@ vi.mock("@codesandbox/sandpack-react", () => ({
 }));
 
 vi.mock("../src/hooks/useGeneration", () => ({
+  useModelOptions: () => ({
+    defaultModel: "model-a",
+    models: ["model-a", "model-b"],
+    isLoading: false
+  }),
   useGeneration: () => ({
     state: mocks.state,
     start: mocks.start,
@@ -151,7 +156,8 @@ describe("App error state", () => {
     await waitFor(() => {
       expect(mocks.repair).toHaveBeenCalledWith(
         "r1",
-        expect.stringContaining("ReferenceError: count is not defined")
+        expect.stringContaining("ReferenceError: count is not defined"),
+        "model-a"
       );
     });
   });

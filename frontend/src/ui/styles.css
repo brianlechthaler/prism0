@@ -223,6 +223,40 @@ body {
   accent-color: var(--accent);
 }
 
+.modelRow {
+  margin-top: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.modelPicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.modelPicker select {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  padding: 7px 28px 7px 10px;
+  max-width: min(420px, 70vw);
+}
+
+.modelPicker select:disabled {
+  opacity: 0.65;
+}
+
+.modelHint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .grid {
   margin-top: 14px;
   display: grid;

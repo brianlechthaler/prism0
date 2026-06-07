@@ -7,6 +7,7 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  openaiModels: ["m"],
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -50,6 +51,23 @@ describe("registerRoutes", () => {
         body: JSON.stringify({ idea: "no" })
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  it("serves configured model options", async () => {
+    const { app } = createTestApp(new RunStore(), {
+      ...config,
+      openaiModel: "primary",
+      openaiModels: ["primary", "fallback"]
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        defaultModel: "primary",
+        models: ["primary", "fallback"]
+      });
     });
   });
 
@@ -136,7 +154,35 @@ describe("registerRoutes", () => {
     });
   });
 
-  it("starts generation asynchronously", async () => {
+  it("starts generation asynchronously with the selected model", async () => {
+    const generationSpy = vi
+      .spyOn(await import("../src/generator.js"), "runGeneration")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp(new RunStore(), {
+      ...config,
+      openaiModels: ["m", "fallback"]
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a tiny app", model: "fallback" })
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(json.runId).toBeTruthy();
+      expect(generationSpy).toHaveBeenCalledWith(
+        { ...config, openaiModels: ["m", "fallback"] },
+        store,
+        json.runId,
+        "make a tiny app",
+        "fallback"
+      );
+    });
+  });
+
+  it("rejects unconfigured models", async () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
 
@@ -144,11 +190,10 @@ describe("registerRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ idea: "make a tiny app" })
+        body: JSON.stringify({ idea: "make a tiny app", model: "missing" })
       });
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as { runId: string };
-      expect(json.runId).toBeTruthy();
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
     });
   });
 
@@ -220,7 +265,8 @@ describe("registerRoutes", () => {
         expect.objectContaining({
           files: expect.objectContaining({ "index.js": "throw new Error();" })
         }),
-        "Error: boom"
+        "Error: boom",
+        undefined
       );
     });
   });
@@ -255,7 +301,8 @@ describe("registerRoutes", () => {
         expect.objectContaining({
           files: expect.objectContaining({ "index.js": "export const x = 1;" })
         }),
-        "add a settings panel"
+        "add a settings panel",
+        undefined
       );
     });
   });

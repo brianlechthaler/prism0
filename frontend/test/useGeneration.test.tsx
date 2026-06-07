@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useGeneration } from "../src/hooks/useGeneration";
+import { useGeneration, useModelOptions } from "../src/hooks/useGeneration";
 
 type MockEventSourceInstance = {
   url: string;
@@ -47,6 +47,28 @@ describe("useGeneration", () => {
     }
   });
 
+  it("starts generation with a selected model", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "r1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app", "model-b");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idea: "make app", model: "model-b" })
+    });
+  });
+
   it("starts repair runs for generated app runtime errors", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ runId: "repair-1" }), {
@@ -59,13 +81,13 @@ describe("useGeneration", () => {
 
     const { result } = renderHook(() => useGeneration());
     await act(async () => {
-      await result.current.repair("source-1", "ReferenceError: count is not defined");
+      await result.current.repair("source-1", "ReferenceError: count is not defined", "model-b");
     });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/fix", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ error: "ReferenceError: count is not defined" })
+      body: JSON.stringify({ error: "ReferenceError: count is not defined", model: "model-b" })
     });
     expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
     expect(result.current.state.kind).toBe("generating");
@@ -103,13 +125,13 @@ describe("useGeneration", () => {
 
     const { result } = renderHook(() => useGeneration());
     await act(async () => {
-      await result.current.followUp("source-1", "add a settings panel");
+      await result.current.followUp("source-1", "add a settings panel", "model-b");
     });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/follow-up", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "add a settings panel" })
+      body: JSON.stringify({ prompt: "add a settings panel", model: "model-b" })
     });
     expect(eventSources.at(-1)?.url).toContain("/api/generate/follow-up-1/events");
     expect(result.current.state.kind).toBe("generating");
@@ -351,5 +373,49 @@ describe("useGeneration", () => {
     if (result.current.state.kind === "error") {
       expect(result.current.state.message).toBe("generation failed");
     }
+  });
+});
+
+describe("useModelOptions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("loads configured model options", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ defaultModel: "model-a", models: ["model-a", "model-b"] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    );
+
+    const { result } = renderHook(() => useModelOptions());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+    expect(result.current).toEqual({
+      defaultModel: "model-a",
+      models: ["model-a", "model-b"],
+      isLoading: false
+    });
+  });
+
+  it("reports model option load failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }))
+    );
+
+    const { result } = renderHook(() => useModelOptions());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+    expect(result.current.error).toBe("unavailable");
   });
 });

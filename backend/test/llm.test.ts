@@ -22,6 +22,7 @@ import {
   fixProjectFromRuntimeError,
   fixProjectFromValidationErrors,
   generateProjectFromIdea,
+  getModelCandidates,
   updateProjectFromFollowUp
 } from "../src/llm.js";
 
@@ -29,6 +30,7 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  openaiModels: ["m"],
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -53,6 +55,12 @@ describe("llm", () => {
   it("creates an OpenAI client", () => {
     const client = createOpenAiClient(config);
     expect(client.chat.completions.create).toBeTypeOf("function");
+  });
+
+  it("orders selected models before configured fallbacks", () => {
+    expect(
+      getModelCandidates({ ...config, openaiModels: ["primary", "fallback-a", "fallback-b"] }, "fallback-a")
+    ).toEqual(["fallback-a", "primary", "fallback-b"]);
   });
 
   it("streams content and returns full response", async () => {
@@ -81,6 +89,28 @@ describe("llm", () => {
       stream: true,
       stream_options: { include_usage: true }
     });
+  });
+
+  it("falls back to the next configured model when the selected model fails", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: "ok" } }] };
+    }
+
+    createMock.mockRejectedValueOnce(new Error("selected unavailable")).mockResolvedValueOnce(mockStream());
+    const onModelFallback = vi.fn();
+
+    const result = await generateProjectFromIdea(
+      { ...config, openaiModels: ["primary", "fallback"] },
+      "make app",
+      { onModelFallback },
+      { selectedModel: "fallback" }
+    );
+
+    expect(result).toBe("ok");
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock.mock.calls[0]?.[0]?.model).toBe("fallback");
+    expect(createMock.mock.calls[1]?.[0]?.model).toBe("primary");
+    expect(onModelFallback).toHaveBeenCalledWith("fallback", "selected unavailable", "primary");
   });
 
   it("reports final stream usage with reasoning token details", async () => {

@@ -14,6 +14,11 @@ vi.mock("@codesandbox/sandpack-react", () => ({
 }));
 
 vi.mock("../src/hooks/useGeneration", () => ({
+  useModelOptions: () => ({
+    defaultModel: "model-a",
+    models: ["model-a", "model-b"],
+    isLoading: false
+  }),
   useGeneration: () => ({
     state: {
       kind: "ready",
@@ -52,7 +57,7 @@ describe("App ready state", () => {
     fireEvent.change(prompt, { target: { value: "add a settings panel" } });
     fireEvent.click(screen.getByRole("button", { name: /update app/i }));
 
-    expect(followUp).toHaveBeenCalledWith("abc", "add a settings panel");
+    expect(followUp).toHaveBeenCalledWith("abc", "add a settings panel", "model-a");
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -74,7 +79,7 @@ describe("App ready state", () => {
     fireEvent.change(prompt, { target: { value: "make a drawing app" } });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
 
-    expect(start).toHaveBeenCalledWith("make a drawing app");
+    expect(start).toHaveBeenCalledWith("make a drawing app", "model-a");
     expect(followUp).not.toHaveBeenCalled();
   });
 
@@ -86,7 +91,7 @@ describe("App ready state", () => {
     fireEvent.change(prompt, { target: { value: "add keyboard shortcuts" } });
     fireEvent.click(screen.getByRole("button", { name: /update app/i }));
 
-    expect(followUp).toHaveBeenCalledWith("abc", "add keyboard shortcuts");
+    expect(followUp).toHaveBeenCalledWith("abc", "add keyboard shortcuts", "model-a");
     expect(start).not.toHaveBeenCalled();
   });
 });

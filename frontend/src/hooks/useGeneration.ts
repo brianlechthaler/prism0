@@ -45,6 +45,22 @@ type SsePayload =
   | { type: "done"; files: Record<string, string> }
   | { type: "error"; message: string };
 
+export type ModelOptionsState = {
+  defaultModel: string;
+  models: string[];
+  isLoading: boolean;
+  error?: string;
+};
+
+type ModelOptionsResponse = {
+  defaultModel: string;
+  models: string[];
+};
+
+function requestBodyWithModel<T extends Record<string, unknown>>(body: T, model?: string): string {
+  return JSON.stringify(model ? { ...body, model } : body);
+}
+
 export function appendLogLine(state: GenerationState, line: string): GenerationState {
   if (state.kind === "generating" || state.kind === "ready" || state.kind === "error") {
     return { ...state, logs: [...state.logs, line] };
@@ -79,6 +95,50 @@ export function applyUsageUpdate(
     return { ...state, usage };
   }
   return state;
+}
+
+export function useModelOptions() {
+  const [modelOptions, setModelOptions] = useState<ModelOptionsState>({
+    defaultModel: "",
+    models: [],
+    isLoading: true
+  });
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadModelOptions() {
+      try {
+        const res = await fetch("/api/models");
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+
+        const json = (await res.json()) as ModelOptionsResponse;
+        if (!isActive) return;
+        setModelOptions({
+          defaultModel: json.defaultModel,
+          models: json.models,
+          isLoading: false
+        });
+      } catch (error) {
+        if (!isActive) return;
+        setModelOptions({
+          defaultModel: "",
+          models: [],
+          isLoading: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    void loadModelOptions();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  return modelOptions;
 }
 
 export function useGeneration() {
@@ -118,14 +178,14 @@ export function useGeneration() {
   }, []);
 
   const start = useCallback(
-    async (idea: string) => {
+    async (idea: string, model?: string) => {
       eventSourceRef.current?.close();
       setState({ kind: "generating", runId: "", logs: ["Starting…"] });
 
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ idea })
+        body: requestBodyWithModel({ idea }, model)
       });
 
       if (!res.ok) {
@@ -146,7 +206,7 @@ export function useGeneration() {
   );
 
   const repair = useCallback(
-    async (runId: string, error: string) => {
+    async (runId: string, error: string, model?: string) => {
       eventSourceRef.current?.close();
       setState({
         kind: "generating",
@@ -157,7 +217,7 @@ export function useGeneration() {
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ error })
+        body: requestBodyWithModel({ error }, model)
       });
 
       if (!res.ok) {
@@ -178,7 +238,7 @@ export function useGeneration() {
   );
 
   const followUp = useCallback(
-    async (runId: string, prompt: string) => {
+    async (runId: string, prompt: string, model?: string) => {
       eventSourceRef.current?.close();
       setState({
         kind: "generating",
@@ -189,7 +249,7 @@ export function useGeneration() {
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt })
+        body: requestBodyWithModel({ prompt }, model)
       });
 
       if (!res.ok) {
