@@ -5,8 +5,31 @@ import { App } from "../src/ui/App";
 
 vi.mock("../src/hooks/useGeneration", () => ({
   useGeneration: () => ({
-    state: { kind: "generating", runId: "abc", logs: ["working"] },
-    start: vi.fn()
+    state: {
+      kind: "generating",
+      runId: "abc",
+      logs: ["working"],
+      usage: {
+        inputTokens: 100,
+        outputTokens: 40,
+        totalTokens: 140,
+        contextWindowTokens: 1000,
+        contextUsedTokens: 140,
+        contextUsedPercent: 14,
+        outputTokensPerSecond: 20,
+        buckets: [
+          {
+            kind: "generate",
+            label: "LLM generate",
+            inputTokens: 100,
+            outputTokens: 40,
+            totalTokens: 140
+          }
+        ]
+      }
+    },
+    start: vi.fn(),
+    repair: vi.fn()
   })
 }));
 
@@ -15,5 +38,7 @@ describe("App generating state", () => {
     render(<App />);
     expect(screen.getByRole("button", { name: /generating/i })).toBeDisabled();
     expect(screen.getByText("working")).toBeInTheDocument();
+    expect(screen.getByText("20.0 tok/s")).toBeInTheDocument();
+    expect(screen.getByText(/140 \/ 1,000 context tokens \(14.0%\)/i)).toBeInTheDocument();
   });
 });

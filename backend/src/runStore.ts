@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GenerationRun, RunStatus, SseMessage } from "./types.js";
+import type { GenerationRun, RunStatus, RunUsageMetrics, SseMessage } from "./types.js";
 
 type Subscriber = (message: SseMessage) => void;
 
@@ -60,6 +60,10 @@ export class RunStore {
       subscriber({ type: "log", line });
     }
 
+    if (run.usage) {
+      subscriber({ type: "usage", metrics: run.usage });
+    }
+
     if (run.status === "done") {
       subscriber({ type: "done", files: run.files });
     } else if (run.status === "error") {
@@ -88,6 +92,13 @@ export class RunStore {
     const run = this.require(id);
     run.files = files;
     run.updatedAt = this.now();
+  }
+
+  updateUsage(id: string, usage: RunUsageMetrics): void {
+    const run = this.require(id);
+    run.usage = this.cloneUsage(usage);
+    run.updatedAt = this.now();
+    this.broadcast(run, { type: "usage", metrics: run.usage });
   }
 
   complete(id: string, files: Record<string, string>): void {
@@ -142,7 +153,15 @@ export class RunStore {
       status: run.status,
       logs: [...run.logs],
       files: { ...run.files },
+      usage: run.usage ? this.cloneUsage(run.usage) : undefined,
       error: run.error
+    };
+  }
+
+  private cloneUsage(usage: RunUsageMetrics): RunUsageMetrics {
+    return {
+      ...usage,
+      buckets: usage.buckets.map((bucket) => ({ ...bucket }))
     };
   }
 }

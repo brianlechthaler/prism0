@@ -6,13 +6,16 @@ import {
   buildJsonFixPrompt,
   buildRuntimeFixPrompt
 } from "./prompts.js";
-import type { GeneratedProject } from "./types.js";
+import type { GeneratedProject, LlmCompletionUsage, LlmUsageKind } from "./types.js";
 
 export type StreamHandlers = {
   onReasoning?: (chunk: string) => void;
   onContent?: (chunk: string) => void;
   onStreamOpen?: () => void;
+  onUsage?: (usage: LlmCompletionUsage) => void;
 };
+
+type LlmCallKind = Exclude<LlmUsageKind, "thinking">;
 
 const STREAM_FIRST_CHUNK_MS = 120_000;
 const STREAM_IDLE_CHUNK_MS = 60_000;
@@ -73,6 +76,7 @@ export function createOpenAiClient(config: AppConfig): OpenAI {
 export async function streamProjectCompletion(
   config: AppConfig,
   prompt: string,
+  kind: LlmCallKind,
   handlers: StreamHandlers = {}
 ): Promise<string> {
   const client = createOpenAiClient(config);
@@ -85,6 +89,7 @@ export async function streamProjectCompletion(
       top_p: 0.95,
       max_tokens: 16384,
       stream: true,
+      stream_options: { include_usage: true },
       // NVIDIA / reasoning-model compatibility (ignored by OpenAI).
       reasoning_budget: 16384,
       chat_template_kwargs: { enable_thinking: true }
@@ -96,6 +101,7 @@ export async function streamProjectCompletion(
   handlers.onStreamOpen?.();
 
   let content = "";
+  let usage: LlmCompletionUsage | undefined;
   let sawFirstChunk = false;
   const hardDeadline = Date.now() + STREAM_HARD_LIMIT_MS;
   const iterator = stream[Symbol.asyncIterator]();
@@ -110,6 +116,7 @@ export async function streamProjectCompletion(
     if (done) break;
 
     sawFirstChunk = true;
+    usage = extractUsage(chunk, kind) ?? usage;
     const choice = chunk.choices[0];
     const delta = choice?.delta as { content?: string; reasoning_content?: string } | undefined;
 
@@ -129,7 +136,31 @@ export async function streamProjectCompletion(
     throw new Error("Model returned an empty response");
   }
 
+  if (usage) {
+    handlers.onUsage?.(usage);
+  }
+
   return content;
+}
+
+function extractUsage(chunk: unknown, kind: LlmCallKind): LlmCompletionUsage | undefined {
+  const usage = (chunk as { usage?: unknown }).usage;
+  if (!usage || typeof usage !== "object") return undefined;
+
+  const candidate = usage as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    completion_tokens_details?: { reasoning_tokens?: unknown };
+  };
+  const promptTokens = typeof candidate.prompt_tokens === "number" ? candidate.prompt_tokens : 0;
+  const completionTokens =
+    typeof candidate.completion_tokens === "number" ? candidate.completion_tokens : 0;
+  const reasoningTokens =
+    typeof candidate.completion_tokens_details?.reasoning_tokens === "number"
+      ? candidate.completion_tokens_details.reasoning_tokens
+      : 0;
+
+  return { kind, promptTokens, completionTokens, reasoningTokens };
 }
 
 export async function generateProjectFromIdea(
@@ -137,7 +168,7 @@ export async function generateProjectFromIdea(
   idea: string,
   handlers: StreamHandlers = {}
 ): Promise<string> {
-  return streamProjectCompletion(config, buildGenerationPrompt(idea), handlers);
+  return streamProjectCompletion(config, buildGenerationPrompt(idea), "generate", handlers);
 }
 
 export async function fixProjectFromValidationErrors(
@@ -150,6 +181,7 @@ export async function fixProjectFromValidationErrors(
   return streamProjectCompletion(
     config,
     buildFixPrompt(idea, project, validationError),
+    "validation_fix",
     handlers
   );
 }
@@ -164,6 +196,7 @@ export async function fixProjectFromRuntimeError(
   return streamProjectCompletion(
     config,
     buildRuntimeFixPrompt(idea, project, runtimeError),
+    "runtime_fix",
     handlers
   );
 }
@@ -178,6 +211,7 @@ export async function fixInvalidJsonResponse(
   return streamProjectCompletion(
     config,
     buildJsonFixPrompt(idea, parseError, invalidResponse),
+    "json_fix",
     handlers
   );
 }

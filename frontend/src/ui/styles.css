@@ -223,6 +223,133 @@ body {
   font-size: 13px;
 }
 
+.usage {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.usageEmpty {
+  color: var(--muted);
+}
+
+.usageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.usageTitle {
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 720;
+  font-size: 13px;
+}
+
+.usageHint,
+.usageContext {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.usageRate {
+  border: 1px solid rgba(156, 255, 239, 0.28);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: rgba(156, 255, 239, 0.92);
+  background: rgba(156, 255, 239, 0.08);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.usageBar {
+  margin-top: 12px;
+  height: 11px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  display: flex;
+}
+
+.usageSegment {
+  min-width: 2px;
+  height: 100%;
+}
+
+.usageSegment-generate {
+  background: #9cffef;
+}
+
+.usageSegment-thinking {
+  background: #a78bfa;
+}
+
+.usageSegment-json_fix {
+  background: #fbbf24;
+}
+
+.usageSegment-validation_fix {
+  background: #60a5fa;
+}
+
+.usageSegment-runtime_fix {
+  background: #fb7185;
+}
+
+.usageStats {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.usageStats > div {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.usageStats strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+}
+
+.usageStatLabel {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.usageLegend {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.usageLegendItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.usageLegendItem strong {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.usageDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
 .log {
   padding: 12px 14px;
   white-space: pre-wrap;

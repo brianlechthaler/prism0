@@ -22,6 +22,7 @@ const testConfig = {
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
+  contextWindowTokens: 128_000,
   maxRuns: 100,
   maxActiveRuns: 5,
   generationRateLimitWindowMs: 60_000,

@@ -151,6 +151,29 @@ describe("useGeneration", () => {
         data: JSON.stringify({ type: "log", line: "step" })
       } as MessageEvent);
       source!.onmessage?.({
+        data: JSON.stringify({
+          type: "usage",
+          metrics: {
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15,
+            contextWindowTokens: 100,
+            contextUsedTokens: 15,
+            contextUsedPercent: 15,
+            outputTokensPerSecond: 2.5,
+            buckets: [
+              {
+                kind: "generate",
+                label: "LLM generate",
+                inputTokens: 10,
+                outputTokens: 5,
+                totalTokens: 15
+              }
+            ]
+          }
+        })
+      } as MessageEvent);
+      source!.onmessage?.({
         data: JSON.stringify({ type: "done", files: { "index.html": "<html/>" } })
       } as MessageEvent);
     });
@@ -162,6 +185,7 @@ describe("useGeneration", () => {
     if (result.current.state.kind === "ready") {
       expect(result.current.state.logs).toContain("step");
       expect(result.current.state.files["index.html"]).toBe("<html/>");
+      expect(result.current.state.usage?.contextUsedPercent).toBe(15);
     }
   });
 

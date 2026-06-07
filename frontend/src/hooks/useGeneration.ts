@@ -1,13 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export type LlmUsageKind = "generate" | "thinking" | "json_fix" | "validation_fix" | "runtime_fix";
+
+export type LlmUsageBucket = {
+  kind: LlmUsageKind;
+  label: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
+export type RunUsageMetrics = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  contextWindowTokens: number;
+  contextUsedTokens: number;
+  contextUsedPercent: number;
+  outputTokensPerSecond: number;
+  buckets: LlmUsageBucket[];
+};
+
 export type GenerationState =
   | { kind: "idle" }
-  | { kind: "generating"; runId: string; logs: string[] }
-  | { kind: "ready"; runId: string; logs: string[]; files: Record<string, string> }
-  | { kind: "error"; message: string; logs: string[] };
+  | { kind: "generating"; runId: string; logs: string[]; usage?: RunUsageMetrics }
+  | {
+      kind: "ready";
+      runId: string;
+      logs: string[];
+      files: Record<string, string>;
+      usage?: RunUsageMetrics;
+    }
+  | { kind: "error"; message: string; logs: string[]; usage?: RunUsageMetrics };
 
 type SsePayload =
   | { type: "log"; line: string }
+  | { type: "usage"; metrics: RunUsageMetrics }
   | { type: "done"; files: Record<string, string> }
   | { type: "error"; message: string };
 
@@ -24,7 +52,8 @@ export function completeGeneration(
   files: Record<string, string>
 ): Extract<GenerationState, { kind: "ready" }> {
   const logs = "logs" in state ? state.logs : [];
-  return { kind: "ready", runId, logs: [...logs, "Ready."], files };
+  const usage = "usage" in state ? state.usage : undefined;
+  return { kind: "ready", runId, logs: [...logs, "Ready."], files, usage };
 }
 
 export function failGeneration(
@@ -32,7 +61,18 @@ export function failGeneration(
   message: string
 ): Extract<GenerationState, { kind: "error" }> {
   const logs = "logs" in state ? state.logs : [];
-  return { kind: "error", message, logs };
+  const usage = "usage" in state ? state.usage : undefined;
+  return { kind: "error", message, logs, usage };
+}
+
+export function applyUsageUpdate(
+  state: GenerationState,
+  usage: RunUsageMetrics
+): GenerationState {
+  if (state.kind === "generating" || state.kind === "ready" || state.kind === "error") {
+    return { ...state, usage };
+  }
+  return state;
 }
 
 export function useGeneration() {
@@ -52,6 +92,8 @@ export function useGeneration() {
 
       if (msg.type === "log") {
         setState((s) => appendLogLine(s, msg.line));
+      } else if (msg.type === "usage") {
+        setState((s) => applyUsageUpdate(s, msg.metrics));
       } else if (msg.type === "done") {
         setState((s) => completeGeneration(s, runId, msg.files));
         es.close();

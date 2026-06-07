@@ -10,6 +10,7 @@ describe("loadConfig", () => {
     expect(cfg.host).toBe("0.0.0.0");
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
+    expect(cfg.contextWindowTokens).toBe(128_000);
     expect(cfg.maxRuns).toBe(100);
     expect(cfg.maxActiveRuns).toBe(5);
     expect(cfg.generationRateLimitWindowMs).toBe(60_000);
@@ -21,6 +22,11 @@ describe("loadConfig", () => {
   it("accepts request timeout override from env", () => {
     const cfg = loadConfig({ OPENAI_API_KEY: "k", REQUEST_TIMEOUT_MS: "45000" });
     expect(cfg.requestTimeoutMs).toBe(45_000);
+  });
+
+  it("accepts context window override from env", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", OPENAI_CONTEXT_WINDOW: "200000" });
+    expect(cfg.contextWindowTokens).toBe(200_000);
   });
 
   it("accepts max run retention override from env", () => {

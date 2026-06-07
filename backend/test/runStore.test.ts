@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { RunStore } from "../src/runStore.js";
+import type { RunUsageMetrics } from "../src/types.js";
+
+const usage: RunUsageMetrics = {
+  inputTokens: 10,
+  outputTokens: 5,
+  totalTokens: 15,
+  contextWindowTokens: 100,
+  contextUsedTokens: 15,
+  contextUsedPercent: 15,
+  outputTokensPerSecond: 2.5,
+  buckets: [
+    {
+      kind: "generate",
+      label: "LLM generate",
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15
+    }
+  ]
+};
 
 describe("RunStore", () => {
   it("creates and retrieves runs", () => {
@@ -29,11 +49,35 @@ describe("RunStore", () => {
     const store = new RunStore();
     const run = store.create("idea");
     store.appendLog(run.id, "hello");
+    store.updateUsage(run.id, usage);
     store.complete(run.id, { "index.js": "x" });
 
     const replay: string[] = [];
     store.subscribe(run.id, (msg) => replay.push(msg.type));
-    expect(replay).toEqual(["log", "done"]);
+    expect(replay).toEqual(["log", "usage", "done"]);
+  });
+
+  it("streams usage updates and snapshots are immutable", () => {
+    const store = new RunStore();
+    const run = store.create("idea");
+    const events: string[] = [];
+
+    store.subscribe(run.id, (msg) => {
+      events.push(msg.type);
+    });
+    store.updateUsage(run.id, usage);
+
+    const snapshot = store.get(run.id);
+    snapshot?.usage?.buckets.push({
+      kind: "thinking",
+      label: "LLM thinking",
+      inputTokens: 0,
+      outputTokens: 1,
+      totalTokens: 1
+    });
+
+    expect(events).toEqual(["usage"]);
+    expect(store.get(run.id)?.usage?.buckets).toHaveLength(1);
   });
 
   it("replays unknown error message when details are missing", () => {

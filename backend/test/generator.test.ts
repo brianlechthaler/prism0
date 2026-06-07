@@ -10,6 +10,7 @@ const config = {
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
+  contextWindowTokens: 128_000,
   maxRuns: 100,
   maxActiveRuns: 5,
   generationRateLimitWindowMs: 60_000,
@@ -40,6 +41,12 @@ describe("runGeneration", () => {
         handlers.onStreamOpen?.();
         handlers.onReasoning?.("r".repeat(401));
         handlers.onContent?.("c".repeat(501));
+        handlers.onUsage?.({
+          kind: "generate",
+          promptTokens: 100,
+          completionTokens: 30,
+          reasoningTokens: 10
+        });
         return JSON.stringify(validPayload);
       }
     );
@@ -62,6 +69,9 @@ describe("runGeneration", () => {
     expect(final?.logs.some((l) => l.includes("Model content stream"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("validated step"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("All checks passed"))).toBe(true);
+    expect(final?.usage?.inputTokens).toBe(100);
+    expect(final?.usage?.outputTokens).toBe(30);
+    expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["thinking", "generate"]);
   });
 
   it("does not log stream milestones before thresholds are reached", async () => {

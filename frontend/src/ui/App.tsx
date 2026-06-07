@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { useGeneration } from "../hooks/useGeneration";
+import { UsageMetricsPanel } from "./UsageMetrics";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
 export const PREVIEW_ERROR_MESSAGE_TYPE = "prism0-preview-error";
@@ -98,6 +99,7 @@ export function App() {
   const logRef = useRef<HTMLDivElement | null>(null);
   const ideaTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRunId = "runId" in state ? state.runId : "";
+  const usage = "usage" in state ? state.usage : undefined;
 
   useEffect(() => {
     if (!isIdeaMultiline) return;
@@ -198,6 +200,7 @@ export function App() {
         <section className="grid">
           <div className="panel">
             <div className="panelTitle">Verbose progress</div>
+            <UsageMetricsPanel metrics={usage} />
             <div className="log" role="log" aria-live="polite" ref={logRef}>
               {"logs" in state ? state.logs.join("\n") : "Enter an idea and hit Submit."}
             </div>

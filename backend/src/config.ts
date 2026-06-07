@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   HOST: z.string().min(1).optional(),
   PORT: z.coerce.number().int().positive().optional(),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  OPENAI_CONTEXT_WINDOW: z.coerce.number().int().positive().optional(),
   MAX_RUNS: z.coerce.number().int().positive().optional(),
   MAX_ACTIVE_RUNS: z.coerce.number().int().positive().optional(),
   GENERATION_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
@@ -35,6 +36,7 @@ export type AppConfig = {
   host: string;
   port: number;
   requestTimeoutMs: number;
+  contextWindowTokens: number;
   maxRuns: number;
   maxActiveRuns: number;
   generationRateLimitWindowMs: number;
@@ -51,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     HOST: cli.host ?? env.HOST,
     PORT: cli.port ?? env.PORT,
     REQUEST_TIMEOUT_MS: env.REQUEST_TIMEOUT_MS,
+    OPENAI_CONTEXT_WINDOW: env.OPENAI_CONTEXT_WINDOW,
     MAX_RUNS: env.MAX_RUNS,
     MAX_ACTIVE_RUNS: env.MAX_ACTIVE_RUNS,
     GENERATION_RATE_LIMIT_WINDOW_MS: env.GENERATION_RATE_LIMIT_WINDOW_MS,
@@ -78,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     host: parsed.data.HOST ?? "0.0.0.0",
     port: parsed.data.PORT ?? 8787,
     requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000,
+    contextWindowTokens: parsed.data.OPENAI_CONTEXT_WINDOW ?? 128_000,
     maxRuns: parsed.data.MAX_RUNS ?? 100,
     maxActiveRuns: parsed.data.MAX_ACTIVE_RUNS ?? 5,
     generationRateLimitWindowMs: parsed.data.GENERATION_RATE_LIMIT_WINDOW_MS ?? 60_000,
