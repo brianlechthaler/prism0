@@ -56,6 +56,17 @@ describe("App ready state", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("expands ready-state follow-up prompts with follow-up placeholder text", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByLabelText(/what should we add or change/i));
+    const prompt = screen.getByLabelText(/what should we add or change/i);
+    expect(prompt.tagName).toBe("TEXTAREA");
+    expect(prompt).toHaveAttribute(
+      "placeholder",
+      'e.g. "add keyboard controls and a score history"'
+    );
+  });
+
   it("can use ready-state prompts to start a new app instead", async () => {
     render(<App />);
     fireEvent.click(screen.getByLabelText(/start a new app instead/i));

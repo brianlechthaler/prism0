@@ -163,7 +163,6 @@ export function App() {
       : "Submit";
 
   const submitPrompt = () => {
-    if (!trimmedIdea) return;
     if (state.kind === "ready" && readySubmissionMode === "follow-up") {
       void followUp(state.runId, trimmedIdea);
       return;
