@@ -66,4 +66,16 @@ describe("App ready state", () => {
     expect(start).toHaveBeenCalledWith("make a drawing app");
     expect(followUp).not.toHaveBeenCalled();
   });
+
+  it("can switch back to follow-up mode after choosing a new app", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByLabelText(/start a new app instead/i));
+    fireEvent.click(screen.getByLabelText(/update the current app/i));
+    const prompt = screen.getByLabelText(/what should we add or change/i);
+    fireEvent.change(prompt, { target: { value: "add keyboard shortcuts" } });
+    fireEvent.click(screen.getByRole("button", { name: /update app/i }));
+
+    expect(followUp).toHaveBeenCalledWith("abc", "add keyboard shortcuts");
+    expect(start).not.toHaveBeenCalled();
+  });
 });
