@@ -31,6 +31,7 @@ const config = {
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
+  contextWindowTokens: 128_000,
   maxRuns: 100,
   maxActiveRuns: 5,
   generationRateLimitWindowMs: 60_000,
@@ -75,6 +76,53 @@ describe("llm", () => {
     expect(result).toBe("hello");
     expect(reasoning.join("")).toBe("thinking");
     expect(content.join("")).toBe("hello");
+    expect(createMock.mock.calls[0]?.[0]).toMatchObject({
+      stream: true,
+      stream_options: { include_usage: true }
+    });
+  });
+
+  it("reports final stream usage with reasoning token details", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: "hello" } }] };
+      yield {
+        choices: [],
+        usage: {
+          prompt_tokens: 123,
+          completion_tokens: 45,
+          completion_tokens_details: { reasoning_tokens: 12 }
+        }
+      };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const onUsage = vi.fn();
+    await generateProjectFromIdea(config, "make app", { onUsage });
+
+    expect(onUsage).toHaveBeenCalledWith({
+      kind: "generate",
+      promptTokens: 123,
+      completionTokens: 45,
+      reasoningTokens: 12
+    });
+  });
+
+  it("defaults missing usage fields to zero", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: "fixed" } }] };
+      yield { choices: [], usage: {} };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const onUsage = vi.fn();
+    await fixInvalidJsonResponse(config, "idea", "{ bad }", "parse error", { onUsage });
+
+    expect(onUsage).toHaveBeenCalledWith({
+      kind: "json_fix",
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0
+    });
   });
 
   it("calls onStreamOpen when the stream is created", async () => {

@@ -33,6 +33,7 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `HOST` (optional, default: `0.0.0.0`)
 - `PORT` (optional, default: `8787`)
 - `REQUEST_TIMEOUT_MS` (optional, default: `120000`)
+- `OPENAI_CONTEXT_WINDOW` (optional, default: `128000`; used for the UI context-usage bar)
 - `MAX_RUNS` (optional, default: `100`; caps retained completed/failed run metadata per process)
 - `MAX_ACTIVE_RUNS` (optional, default: `5`; caps simultaneous pending/running generations per process)
 - `GENERATION_RATE_LIMIT_WINDOW_MS` (optional, default: `60000`; request throttle window)

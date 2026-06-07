@@ -9,7 +9,8 @@ import {
 import { parseGeneratedResponse } from "./parseGenerated.js";
 import { MAX_PARSE_ATTEMPTS, MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
 import type { RunStore } from "./runStore.js";
-import type { GeneratedProject } from "./types.js";
+import type { GeneratedProject, LlmCompletionUsage, LlmUsageKind } from "./types.js";
+import { estimateTokensFromText, RunUsageTracker } from "./usageTracker.js";
 import { validateGeneratedProject } from "./validateProject.js";
 
 function timestamp(): string {
@@ -19,6 +20,7 @@ function timestamp(): string {
 async function parseProjectWithRetries(
   config: AppConfig,
   store: RunStore,
+  tracker: RunUsageTracker,
   runId: string,
   idea: string,
   raw: string,
@@ -43,7 +45,13 @@ async function parseProjectWithRetries(
       );
       store.appendLog(runId, `[${timestamp()}] Parse error: ${message}`);
 
-      raw = await fixInvalidJsonResponse(config, idea, raw, message, handlers);
+      raw = await fixInvalidJsonResponse(
+        config,
+        idea,
+        raw,
+        message,
+        trackLlmUsage(store, tracker, runId, "json_fix", handlers)
+      );
     }
   }
 
@@ -53,6 +61,7 @@ async function parseProjectWithRetries(
 async function validateProjectWithRetries(
   config: AppConfig,
   store: RunStore,
+  tracker: RunUsageTracker,
   runId: string,
   idea: string,
   project: GeneratedProject
@@ -82,20 +91,26 @@ async function validateProjectWithRetries(
       store.appendLog(runId, `[${timestamp()}] Validation error: ${message}`);
 
       let fixStreamChars = 0;
-      const raw = await fixProjectFromValidationErrors(config, idea, project, message, {
-        onContent: (chunk) => {
-          fixStreamChars += chunk.length;
-          if (fixStreamChars % 500 < chunk.length) {
-            store.appendLog(
-              runId,
-              `[${timestamp()}] Model fix stream… ${fixStreamChars} chars received`
-            );
+      const raw = await fixProjectFromValidationErrors(
+        config,
+        idea,
+        project,
+        message,
+        trackLlmUsage(store, tracker, runId, "validation_fix", {
+          onContent: (chunk) => {
+            fixStreamChars += chunk.length;
+            if (fixStreamChars % 500 < chunk.length) {
+              store.appendLog(
+                runId,
+                `[${timestamp()}] Model fix stream… ${fixStreamChars} chars received`
+              );
+            }
           }
-        }
-      });
+        })
+      );
 
       store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
-      project = await parseProjectWithRetries(config, store, runId, idea, raw, {
+      project = await parseProjectWithRetries(config, store, tracker, runId, idea, raw, {
         onContent: (chunk) => {
           fixStreamChars += chunk.length;
           if (fixStreamChars % 500 < chunk.length) {
@@ -126,6 +141,7 @@ export async function runGeneration(
   runId: string,
   idea: string
 ): Promise<void> {
+  const tracker = new RunUsageTracker(config.contextWindowTokens);
   try {
     store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 run ${runId} started`);
@@ -155,34 +171,38 @@ export async function runGeneration(
 
     let raw: string;
     try {
-      raw = await generateProjectFromIdea(config, idea, {
-        onStreamOpen: () => {
-          store.appendLog(
-            runId,
-            `[${timestamp()}] Model stream connected; waiting for first token…`
-          );
-        },
-        onReasoning: (chunk) => {
-          sawStreamActivity = true;
-          streamedReasoningChars += chunk.length;
-          if (streamedReasoningChars % 400 < chunk.length) {
+      raw = await generateProjectFromIdea(
+        config,
+        idea,
+        trackLlmUsage(store, tracker, runId, "generate", {
+          onStreamOpen: () => {
             store.appendLog(
               runId,
-              `[${timestamp()}] Model reasoning stream… ${streamedReasoningChars} chars so far`
+              `[${timestamp()}] Model stream connected; waiting for first token…`
             );
+          },
+          onReasoning: (chunk) => {
+            sawStreamActivity = true;
+            streamedReasoningChars += chunk.length;
+            if (streamedReasoningChars % 400 < chunk.length) {
+              store.appendLog(
+                runId,
+                `[${timestamp()}] Model reasoning stream… ${streamedReasoningChars} chars so far`
+              );
+            }
+          },
+          onContent: (chunk) => {
+            sawStreamActivity = true;
+            streamedChars += chunk.length;
+            if (streamedChars % 500 < chunk.length) {
+              store.appendLog(
+                runId,
+                `[${timestamp()}] Model content stream… ${streamedChars} chars received`
+              );
+            }
           }
-        },
-        onContent: (chunk) => {
-          sawStreamActivity = true;
-          streamedChars += chunk.length;
-          if (streamedChars % 500 < chunk.length) {
-            store.appendLog(
-              runId,
-              `[${timestamp()}] Model content stream… ${streamedChars} chars received`
-            );
-          }
-        }
-      });
+        })
+      );
     } finally {
       clearInterval(heartbeat);
     }
@@ -193,7 +213,7 @@ export async function runGeneration(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing generated JSON project payload…`);
-    let project = await parseProjectWithRetries(config, store, runId, idea, raw, {
+    let project = await parseProjectWithRetries(config, store, tracker, runId, idea, raw, {
       onContent: (chunk) => {
         streamedChars += chunk.length;
         if (streamedChars % 500 < chunk.length) {
@@ -213,7 +233,7 @@ export async function runGeneration(
       `[${timestamp()}] Generated files: ${Object.keys(project.files).join(", ")}`
     );
 
-    project = await validateProjectWithRetries(config, store, runId, idea, project);
+    project = await validateProjectWithRetries(config, store, tracker, runId, idea, project);
 
     store.appendLog(runId, `[${timestamp()}] All checks passed. Publishing files to editor/preview.`);
     store.complete(runId, project.files);
@@ -232,6 +252,7 @@ export async function runRuntimeRepair(
   project: GeneratedProject,
   runtimeError: string
 ): Promise<void> {
+  const tracker = new RunUsageTracker(config.contextWindowTokens);
   try {
     store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 runtime repair ${runId} started`);
@@ -243,23 +264,29 @@ export async function runRuntimeRepair(
     );
 
     let fixStreamChars = 0;
-    const raw = await fixProjectFromRuntimeError(config, idea, project, runtimeError, {
-      onStreamOpen: () => {
-        store.appendLog(runId, `[${timestamp()}] Model repair stream connected…`);
-      },
-      onContent: (chunk) => {
-        fixStreamChars += chunk.length;
-        if (fixStreamChars % 500 < chunk.length) {
-          store.appendLog(
-            runId,
-            `[${timestamp()}] Model runtime fix stream… ${fixStreamChars} chars received`
-          );
+    const raw = await fixProjectFromRuntimeError(
+      config,
+      idea,
+      project,
+      runtimeError,
+      trackLlmUsage(store, tracker, runId, "runtime_fix", {
+        onStreamOpen: () => {
+          store.appendLog(runId, `[${timestamp()}] Model repair stream connected…`);
+        },
+        onContent: (chunk) => {
+          fixStreamChars += chunk.length;
+          if (fixStreamChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model runtime fix stream… ${fixStreamChars} chars received`
+            );
+          }
         }
-      }
-    });
+      })
+    );
 
     store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
-    let repairedProject = await parseProjectWithRetries(config, store, runId, idea, raw, {
+    let repairedProject = await parseProjectWithRetries(config, store, tracker, runId, idea, raw, {
       onContent: (chunk) => {
         fixStreamChars += chunk.length;
         if (fixStreamChars % 500 < chunk.length) {
@@ -275,7 +302,14 @@ export async function runRuntimeRepair(
       `[${timestamp()}] Runtime repair summary: ${repairedProject.summary}`
     );
 
-    repairedProject = await validateProjectWithRetries(config, store, runId, idea, repairedProject);
+    repairedProject = await validateProjectWithRetries(
+      config,
+      store,
+      tracker,
+      runId,
+      idea,
+      repairedProject
+    );
 
     store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
     store.complete(runId, repairedProject.files);
@@ -284,4 +318,35 @@ export async function runRuntimeRepair(
     store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
     store.fail(runId, message);
   }
+}
+
+function trackLlmUsage(
+  store: RunStore,
+  tracker: RunUsageTracker,
+  runId: string,
+  kind: Exclude<LlmUsageKind, "thinking">,
+  handlers: StreamHandlers = {}
+): StreamHandlers {
+  const callId = tracker.beginCall(kind);
+  const publish = () => store.updateUsage(runId, tracker.snapshot());
+
+  return {
+    ...handlers,
+    onStreamOpen: handlers.onStreamOpen,
+    onReasoning: (chunk) => {
+      tracker.recordOutputEstimate(callId, "thinking", estimateTokensFromText(chunk));
+      publish();
+      handlers.onReasoning?.(chunk);
+    },
+    onContent: (chunk) => {
+      tracker.recordOutputEstimate(callId, kind, estimateTokensFromText(chunk));
+      publish();
+      handlers.onContent?.(chunk);
+    },
+    onUsage: (usage: LlmCompletionUsage) => {
+      tracker.finalizeCall(callId, usage);
+      publish();
+      handlers.onUsage?.(usage);
+    }
+  };
 }
