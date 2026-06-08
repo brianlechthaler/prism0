@@ -24,7 +24,11 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
   const generationGuard = createGenerationGuard(config, store);
 
   app.get("/api/models", (_req, res) => {
-    res.json({ defaultModel: config.openaiModel, models: config.openaiModels });
+    res.json({
+      enabled: config.modelPickerEnabled,
+      defaultModel: config.openaiModel,
+      models: config.modelPickerEnabled ? config.openaiModels : []
+    });
   });
 
   app.post("/api/generate", generationGuard, (req, res) => {
@@ -214,6 +218,7 @@ export function routeParam(value: string | string[] | undefined): string {
 
 export function validateSelectedModel(config: AppConfig, model?: string): string | undefined | Error {
   if (!model) return undefined;
+  if (!config.modelPickerEnabled) return new Error("Model picker is disabled");
   if (config.openaiModels.includes(model)) return model;
   return new Error(
     `Model "${model}" is not configured. Available models: ${config.openaiModels.join(", ")}`

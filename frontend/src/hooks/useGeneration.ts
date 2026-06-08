@@ -46,6 +46,7 @@ type SsePayload =
   | { type: "error"; message: string };
 
 export type ModelOptionsState = {
+  enabled: boolean;
   defaultModel: string;
   models: string[];
   isLoading: boolean;
@@ -53,6 +54,7 @@ export type ModelOptionsState = {
 };
 
 type ModelOptionsResponse = {
+  enabled: boolean;
   defaultModel: string;
   models: string[];
 };
@@ -99,6 +101,7 @@ export function applyUsageUpdate(
 
 export function useModelOptions() {
   const [modelOptions, setModelOptions] = useState<ModelOptionsState>({
+    enabled: false,
     defaultModel: "",
     models: [],
     isLoading: true
@@ -117,6 +120,7 @@ export function useModelOptions() {
         const json = (await res.json()) as ModelOptionsResponse;
         if (!isActive) return;
         setModelOptions({
+          enabled: json.enabled,
           defaultModel: json.defaultModel,
           models: json.models,
           isLoading: false
@@ -124,6 +128,7 @@ export function useModelOptions() {
       } catch (error) {
         if (!isActive) return;
         setModelOptions({
+          enabled: false,
           defaultModel: "",
           models: [],
           isLoading: false,

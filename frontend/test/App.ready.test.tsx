@@ -15,6 +15,7 @@ vi.mock("@codesandbox/sandpack-react", () => ({
 
 vi.mock("../src/hooks/useGeneration", () => ({
   useModelOptions: () => ({
+    enabled: true,
     defaultModel: "model-a",
     models: ["model-a", "model-b"],
     isLoading: false

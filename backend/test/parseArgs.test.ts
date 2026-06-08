@@ -10,6 +10,7 @@ describe("parseCliArgs", () => {
       "https://example.com/v1",
       "--model",
       "m",
+      "--enable-model-picker",
       "--host",
       "127.0.0.1",
       "--port",
@@ -19,6 +20,7 @@ describe("parseCliArgs", () => {
       apiKey: "k",
       baseUrl: "https://example.com/v1",
       model: "m",
+      modelPickerEnabled: true,
       host: "127.0.0.1",
       port: 9000
     });
@@ -30,5 +32,11 @@ describe("parseCliArgs", () => {
 
   it("ignores flags that are missing values", () => {
     expect(parseCliArgs(["--api-key", "--base-url", "--model", "--host", "--port"])).toEqual({});
+  });
+
+  it("allows the model picker to be explicitly disabled", () => {
+    expect(parseCliArgs(["--enable-model-picker", "--disable-model-picker"])).toEqual({
+      modelPickerEnabled: false
+    });
   });
 });

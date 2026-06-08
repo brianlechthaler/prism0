@@ -386,10 +386,13 @@ describe("useModelOptions", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ defaultModel: "model-a", models: ["model-a", "model-b"] }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        })
+        new Response(
+          JSON.stringify({ enabled: true, defaultModel: "model-a", models: ["model-a", "model-b"] }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        )
       )
     );
 
@@ -399,6 +402,7 @@ describe("useModelOptions", () => {
       expect(result.current.isLoading).toBe(false);
     });
     expect(result.current).toEqual({
+      enabled: true,
       defaultModel: "model-a",
       models: ["model-a", "model-b"],
       isLoading: false
@@ -447,7 +451,7 @@ describe("useModelOptions", () => {
 
     await act(async () => {
       resolveFetch(
-        new Response(JSON.stringify({ defaultModel: "model-a", models: ["model-a"] }), {
+        new Response(JSON.stringify({ enabled: true, defaultModel: "model-a", models: ["model-a"] }), {
           status: 200,
           headers: { "content-type": "application/json" }
         })

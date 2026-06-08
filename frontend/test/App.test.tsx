@@ -6,6 +6,7 @@ import type { ModelOptionsState } from "../src/hooks/useGeneration";
 
 const mocks = vi.hoisted(() => ({
   modelOptions: {
+    enabled: true,
     defaultModel: "model-a",
     models: ["model-a", "model-b"],
     isLoading: false
@@ -24,6 +25,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
 describe("App", () => {
   beforeEach(() => {
     mocks.modelOptions = {
+      enabled: true,
       defaultModel: "model-a",
       models: ["model-a", "model-b"],
       isLoading: false
@@ -36,6 +38,44 @@ describe("App", () => {
     expect(screen.getByLabelText(/what should we build/i).tagName).toBe("INPUT");
     expect(screen.getByLabelText(/model/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
+  });
+
+  it("shows enabled picker loading and error hints", () => {
+    mocks.modelOptions = {
+      enabled: true,
+      defaultModel: "",
+      models: [],
+      isLoading: true
+    };
+    const view = render(<App />);
+    expect(screen.getByText(/loading configured models/i)).toBeInTheDocument();
+
+    mocks.modelOptions = {
+      enabled: true,
+      defaultModel: "",
+      models: [],
+      isLoading: false,
+      error: "unavailable"
+    };
+    view.rerender(<App />);
+    expect(screen.getByText(/could not load models: unavailable/i)).toBeInTheDocument();
+  });
+
+  it("hides the model picker and submits no model when disabled", () => {
+    mocks.modelOptions = {
+      enabled: false,
+      defaultModel: "model-a",
+      models: [],
+      isLoading: false
+    };
+
+    render(<App />);
+    expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/what should we build/i), {
+      target: { value: "make pong" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+    expect(mocks.start).toHaveBeenCalledWith("make pong", undefined);
   });
 
   it("expands the idea input into a paragraph field on click", () => {
@@ -76,6 +116,7 @@ describe("App", () => {
     expect(screen.getByLabelText(/model/i)).toHaveValue("model-b");
 
     mocks.modelOptions = {
+      enabled: true,
       defaultModel: "model-a",
       models: ["model-a"],
       isLoading: false
@@ -94,6 +135,7 @@ describe("App", () => {
     });
 
     mocks.modelOptions = {
+      enabled: true,
       defaultModel: "",
       models: ["model-c"],
       isLoading: false
@@ -112,6 +154,7 @@ describe("App", () => {
     });
 
     mocks.modelOptions = {
+      enabled: true,
       defaultModel: "",
       models: [],
       isLoading: false

@@ -8,6 +8,7 @@ const config = {
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
   openaiModels: ["m"],
+  modelPickerEnabled: false,
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -54,7 +55,7 @@ describe("registerRoutes", () => {
     });
   });
 
-  it("serves configured model options", async () => {
+  it("hides configured model options when the model picker is disabled", async () => {
     const { app } = createTestApp(new RunStore(), {
       ...config,
       openaiModel: "primary",
@@ -65,6 +66,26 @@ describe("registerRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/models`);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
+        enabled: false,
+        defaultModel: "primary",
+        models: []
+      });
+    });
+  });
+
+  it("serves configured model options when the model picker is enabled", async () => {
+    const { app } = createTestApp(new RunStore(), {
+      ...config,
+      modelPickerEnabled: true,
+      openaiModel: "primary",
+      openaiModels: ["primary", "fallback"]
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        enabled: true,
         defaultModel: "primary",
         models: ["primary", "fallback"]
       });
@@ -160,6 +181,7 @@ describe("registerRoutes", () => {
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp(new RunStore(), {
       ...config,
+      modelPickerEnabled: true,
       openaiModels: ["m", "fallback"]
     });
 
@@ -173,7 +195,7 @@ describe("registerRoutes", () => {
       const json = (await res.json()) as { runId: string };
       expect(json.runId).toBeTruthy();
       expect(generationSpy).toHaveBeenCalledWith(
-        { ...config, openaiModels: ["m", "fallback"] },
+        { ...config, modelPickerEnabled: true, openaiModels: ["m", "fallback"] },
         store,
         json.runId,
         "make a tiny app",
@@ -182,9 +204,24 @@ describe("registerRoutes", () => {
     });
   });
 
-  it("rejects unconfigured models", async () => {
+  it("rejects selected models when the model picker is disabled", async () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a tiny app", model: "missing" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("disabled");
+    });
+  });
+
+  it("rejects unconfigured models when the model picker is enabled", async () => {
+    vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
+    const { app } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
 
     await withServer(app, async (port) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
@@ -336,7 +373,7 @@ describe("registerRoutes", () => {
   });
 
   it("rejects unconfigured follow-up models", async () => {
-    const { app, store } = createTestApp();
+    const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
@@ -394,7 +431,7 @@ describe("registerRoutes", () => {
   });
 
   it("rejects unconfigured runtime repair models", async () => {
-    const { app, store } = createTestApp();
+    const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 

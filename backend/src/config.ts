@@ -35,6 +35,7 @@ export type AppConfig = {
   openaiBaseUrl: string;
   openaiModel: string;
   openaiModels: string[];
+  modelPickerEnabled: boolean;
   host: string;
   port: number;
   requestTimeoutMs: number;
@@ -78,12 +79,14 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
   }
 
   const openaiModel = parsed.data.OPENAI_MODEL ?? "gpt-4.1-mini";
+  const modelPickerEnabled = cli.modelPickerEnabled ?? false;
 
   return {
     openaiApiKey: parsed.data.OPENAI_API_KEY,
     openaiBaseUrl: parsed.data.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
     openaiModel,
-    openaiModels: parseModelList(openaiModel, parsed.data.OPENAI_MODELS),
+    openaiModels: modelPickerEnabled ? parseModelList(openaiModel, parsed.data.OPENAI_MODELS) : [openaiModel],
+    modelPickerEnabled,
     host: parsed.data.HOST ?? "0.0.0.0",
     port: parsed.data.PORT ?? 8787,
     requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000,

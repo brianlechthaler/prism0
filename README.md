@@ -30,7 +30,7 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `OPENAI_API_KEY` (required)
 - `OPENAI_BASE_URL` (optional, default: `https://api.openai.com/v1`)
 - `OPENAI_MODEL` (optional, default: `gpt-4.1-mini`)
-- `OPENAI_MODELS` (optional comma-separated picker/fallback list; `OPENAI_MODEL` is always included first)
+- `OPENAI_MODELS` (optional comma-separated picker/fallback list; used only with `--enable-model-picker`; `OPENAI_MODEL` is always included first)
 - `HOST` (optional, default: `0.0.0.0`)
 - `PORT` (optional, default: `8787`)
 - `REQUEST_TIMEOUT_MS` (optional, default: `120000`)
@@ -50,7 +50,7 @@ export OPENAI_BASE_URL="https://integrate.api.nvidia.com/v1"
 export OPENAI_MODEL="nvidia/nemotron-3-ultra-550b-a55b"
 ```
 
-Set `OPENAI_MODELS` to a comma-separated list to populate the frontend model picker and backend fallback order. For each generation, follow-up, or repair run, the backend tries the selected model first and falls back through the remaining configured entries if a model request fails.
+The model picker and multi-model fallback feature is disabled by default. Start the backend with `--enable-model-picker` and set `OPENAI_MODELS` to a comma-separated list to populate the frontend picker and backend fallback order. For each generation, follow-up, or repair run, the backend tries the selected model first and falls back through the remaining configured entries if a model request fails.
 
 ## Run in dev
 
@@ -65,7 +65,7 @@ npm run dev
 You can also pass CLI flags to the backend dev process:
 
 ```bash
-npm run dev -w backend -- --api-key "$OPENAI_API_KEY" --base-url "https://integrate.api.nvidia.com/v1" --model "nvidia/nemotron-3-ultra-550b-a55b" --host "127.0.0.1" --port 8787
+npm run dev -w backend -- --api-key "$OPENAI_API_KEY" --base-url "$OPENAI_BASE_URL" --model "nvidia/nemotron-3-ultra-550b-a55b" --enable-model-picker --host "127.0.0.1" --port 8787
 ```
 
 ## Production build
