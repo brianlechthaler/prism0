@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { useGeneration } from "../hooks/useGeneration";
+import { useGeneration, useModelOptions } from "../hooks/useGeneration";
 import { UsageMetricsPanel } from "./UsageMetrics";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
@@ -100,6 +100,8 @@ export function App() {
     React.useState<ReadySubmissionMode>("follow-up");
   const [previewError, setPreviewError] = React.useState<PreviewRuntimeError | null>(null);
   const { state, start, repair, followUp } = useGeneration();
+  const modelOptions = useModelOptions();
+  const [selectedModel, setSelectedModel] = React.useState("");
   const logRef = useRef<HTMLDivElement | null>(null);
   const ideaTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRunId = "runId" in state ? state.runId : "";
@@ -107,6 +109,10 @@ export function App() {
   const canFollowUp = state.kind === "ready";
   const isGenerating = state.kind === "generating";
   const trimmedIdea = idea.trim();
+  const activeModel = modelOptions.enabled
+    ? selectedModel || modelOptions.defaultModel || modelOptions.models[0] || ""
+    : undefined;
+  const hasMultipleModels = modelOptions.models.length > 1;
 
   useEffect(() => {
     if (!isIdeaMultiline) return;
@@ -127,6 +133,11 @@ export function App() {
     setIdea("");
     setReadySubmissionMode("follow-up");
   }, [state.kind, state.kind === "ready" ? state.runId : ""]);
+
+  useEffect(() => {
+    if (!modelOptions.enabled || !selectedModel || modelOptions.models.includes(selectedModel)) return;
+    setSelectedModel(modelOptions.defaultModel || modelOptions.models[0] || "");
+  }, [modelOptions.defaultModel, modelOptions.enabled, modelOptions.models, selectedModel]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -164,11 +175,11 @@ export function App() {
 
   const submitPrompt = () => {
     if (state.kind === "ready" && readySubmissionMode === "follow-up") {
-      void followUp(state.runId, trimmedIdea);
+      void followUp(state.runId, trimmedIdea, activeModel);
       return;
     }
 
-    void start(trimmedIdea);
+    void start(trimmedIdea, activeModel);
   };
 
   return (
@@ -225,6 +236,35 @@ export function App() {
               {submitLabel}
             </button>
           </div>
+
+          {modelOptions.enabled ? (
+            <div className="modelRow">
+              <label className="modelPicker" htmlFor="model">
+                <span>Model</span>
+                <select
+                  id="model"
+                  value={activeModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  disabled={isGenerating || modelOptions.models.length === 0}
+                >
+                  {modelOptions.models.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="modelHint">
+                {modelOptions.isLoading
+                  ? "Loading configured models…"
+                  : modelOptions.error
+                    ? `Could not load models: ${modelOptions.error}`
+                    : hasMultipleModels
+                      ? "If the selected model fails, the backend will try the other configured models."
+                      : "Only one backend model is configured."}
+              </div>
+            </div>
+          ) : null}
 
           {canFollowUp ? (
             <fieldset className="promptMode" aria-label="Prompt behavior">
@@ -293,7 +333,7 @@ export function App() {
                     <pre>{previewErrorText}</pre>
                     <button
                       className="btn runtimeFixButton"
-                      onClick={() => void repair(state.runId, previewErrorText)}
+                      onClick={() => void repair(state.runId, previewErrorText, activeModel)}
                     >
                       Fix with LLM
                     </button>

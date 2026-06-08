@@ -14,6 +14,12 @@ export type StreamHandlers = {
   onContent?: (chunk: string) => void;
   onStreamOpen?: () => void;
   onUsage?: (usage: LlmCompletionUsage) => void;
+  onModelAttempt?: (model: string, attempt: number, totalAttempts: number) => void;
+  onModelFallback?: (failedModel: string, error: string, nextModel: string) => void;
+};
+
+export type ModelRequestOptions = {
+  selectedModel?: string;
 };
 
 type LlmCallKind = Exclude<LlmUsageKind, "thinking">;
@@ -74,17 +80,49 @@ export function createOpenAiClient(config: AppConfig): OpenAI {
   });
 }
 
+export function getModelCandidates(config: AppConfig, selectedModel?: string): string[] {
+  const preferredModel = selectedModel || config.openaiModel;
+  return [preferredModel, ...config.openaiModels.filter((model) => model !== preferredModel)];
+}
+
 export async function streamProjectCompletion(
   config: AppConfig,
   prompt: string,
   kind: LlmCallKind,
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
+): Promise<string> {
+  const models = getModelCandidates(config, options.selectedModel);
+  let lastError: unknown = new Error("Model request failed");
+
+  for (const [index, model] of models.entries()) {
+    handlers.onModelAttempt?.(model, index + 1, models.length);
+    try {
+      return await streamProjectCompletionWithModel(config, prompt, kind, model, handlers);
+    } catch (error) {
+      lastError = error;
+      const nextModel = models[index + 1];
+      if (nextModel) {
+        handlers.onModelFallback?.(model, errorMessage(error), nextModel);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function streamProjectCompletionWithModel(
+  config: AppConfig,
+  prompt: string,
+  kind: LlmCallKind,
+  model: string,
   handlers: StreamHandlers = {}
 ): Promise<string> {
   const client = createOpenAiClient(config);
 
   const stream = await withTimeout(
     client.chat.completions.create({
-      model: config.openaiModel,
+      model,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       top_p: 0.95,
@@ -96,7 +134,7 @@ export async function streamProjectCompletion(
       chat_template_kwargs: { enable_thinking: true }
     } as OpenAI.Chat.ChatCompletionCreateParamsStreaming),
     config.requestTimeoutMs,
-    `Model API request timed out after ${config.requestTimeoutMs / 1000}s — the endpoint may be overloaded or unavailable. Try a different OPENAI_MODEL.`
+    `Model API request timed out after ${config.requestTimeoutMs / 1000}s for ${model} — the endpoint may be overloaded or unavailable.`
   );
 
   handlers.onStreamOpen?.();
@@ -144,6 +182,10 @@ export async function streamProjectCompletion(
   return content;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function extractUsage(chunk: unknown, kind: LlmCallKind): LlmCompletionUsage | undefined {
   const usage = (chunk as { usage?: unknown }).usage;
   if (!usage || typeof usage !== "object") return undefined;
@@ -167,9 +209,10 @@ function extractUsage(chunk: unknown, kind: LlmCallKind): LlmCompletionUsage | u
 export async function generateProjectFromIdea(
   config: AppConfig,
   idea: string,
-  handlers: StreamHandlers = {}
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
 ): Promise<string> {
-  return streamProjectCompletion(config, buildGenerationPrompt(idea), "generate", handlers);
+  return streamProjectCompletion(config, buildGenerationPrompt(idea), "generate", handlers, options);
 }
 
 export async function updateProjectFromFollowUp(
@@ -177,13 +220,15 @@ export async function updateProjectFromFollowUp(
   idea: string,
   project: GeneratedProject,
   followUpPrompt: string,
-  handlers: StreamHandlers = {}
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
 ): Promise<string> {
   return streamProjectCompletion(
     config,
     buildFollowUpPrompt(idea, project, followUpPrompt),
     "follow_up",
-    handlers
+    handlers,
+    options
   );
 }
 
@@ -192,13 +237,15 @@ export async function fixProjectFromValidationErrors(
   idea: string,
   project: GeneratedProject,
   validationError: string,
-  handlers: StreamHandlers = {}
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
 ): Promise<string> {
   return streamProjectCompletion(
     config,
     buildFixPrompt(idea, project, validationError),
     "validation_fix",
-    handlers
+    handlers,
+    options
   );
 }
 
@@ -207,13 +254,15 @@ export async function fixProjectFromRuntimeError(
   idea: string,
   project: GeneratedProject,
   runtimeError: string,
-  handlers: StreamHandlers = {}
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
 ): Promise<string> {
   return streamProjectCompletion(
     config,
     buildRuntimeFixPrompt(idea, project, runtimeError),
     "runtime_fix",
-    handlers
+    handlers,
+    options
   );
 }
 
@@ -222,12 +271,14 @@ export async function fixInvalidJsonResponse(
   idea: string,
   invalidResponse: string,
   parseError: string,
-  handlers: StreamHandlers = {}
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
 ): Promise<string> {
   return streamProjectCompletion(
     config,
     buildJsonFixPrompt(idea, parseError, invalidResponse),
     "json_fix",
-    handlers
+    handlers,
+    options
   );
 }

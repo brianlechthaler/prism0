@@ -7,6 +7,8 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  openaiModels: ["m"],
+  modelPickerEnabled: false,
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -94,6 +96,32 @@ describe("runGeneration", () => {
     const logs = store.get(run.id)?.logs.join("\n") ?? "";
     expect(logs).not.toContain("Model reasoning stream");
     expect(logs).not.toContain("Model content stream");
+  });
+
+  it("logs model fallback attempts", async () => {
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
+      async (_config, _idea, handlers) => {
+        handlers.onModelAttempt?.("single", 1, 1);
+        handlers.onModelAttempt?.("fallback", 1, 2);
+        handlers.onModelFallback?.("fallback", "model unavailable", "m");
+        handlers.onModelAttempt?.("m", 2, 2);
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration({ ...config, openaiModels: ["m", "fallback"] }, store, run.id, run.idea, "fallback");
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).toContain("Trying model fallback (1/2)");
+    expect(logs).toContain("Model fallback failed: model unavailable");
+    expect(logs).toContain("Trying fallback m");
+    expect(logs).toContain("Trying model m (2/2)");
   });
 
   it("logs heartbeat messages while waiting for the model", async () => {

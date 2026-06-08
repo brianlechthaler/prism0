@@ -2,6 +2,7 @@ export type CliArgs = {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  modelPickerEnabled?: boolean;
   host?: string;
   port?: number;
 };
@@ -23,6 +24,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
     } else if (token === "--model" && hasValue) {
       args.model = next;
       i++;
+    } else if (token === "--enable-model-picker") {
+      args.modelPickerEnabled = true;
+    } else if (token === "--disable-model-picker") {
+      args.modelPickerEnabled = false;
     } else if (token === "--host" && hasValue) {
       args.host = next;
       i++;

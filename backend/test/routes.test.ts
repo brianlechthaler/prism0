@@ -7,6 +7,8 @@ const config = {
   openaiApiKey: "k",
   openaiBaseUrl: "https://example.com/v1",
   openaiModel: "m",
+  openaiModels: ["m"],
+  modelPickerEnabled: false,
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -50,6 +52,43 @@ describe("registerRoutes", () => {
         body: JSON.stringify({ idea: "no" })
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  it("hides configured model options when the model picker is disabled", async () => {
+    const { app } = createTestApp(new RunStore(), {
+      ...config,
+      openaiModel: "primary",
+      openaiModels: ["primary", "fallback"]
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        enabled: false,
+        defaultModel: "primary",
+        models: []
+      });
+    });
+  });
+
+  it("serves configured model options when the model picker is enabled", async () => {
+    const { app } = createTestApp(new RunStore(), {
+      ...config,
+      modelPickerEnabled: true,
+      openaiModel: "primary",
+      openaiModels: ["primary", "fallback"]
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        enabled: true,
+        defaultModel: "primary",
+        models: ["primary", "fallback"]
+      });
     });
   });
 
@@ -136,7 +175,36 @@ describe("registerRoutes", () => {
     });
   });
 
-  it("starts generation asynchronously", async () => {
+  it("starts generation asynchronously with the selected model", async () => {
+    const generationSpy = vi
+      .spyOn(await import("../src/generator.js"), "runGeneration")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp(new RunStore(), {
+      ...config,
+      modelPickerEnabled: true,
+      openaiModels: ["m", "fallback"]
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a tiny app", model: "fallback" })
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(json.runId).toBeTruthy();
+      expect(generationSpy).toHaveBeenCalledWith(
+        { ...config, modelPickerEnabled: true, openaiModels: ["m", "fallback"] },
+        store,
+        json.runId,
+        "make a tiny app",
+        "fallback"
+      );
+    });
+  });
+
+  it("rejects selected models when the model picker is disabled", async () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
 
@@ -144,11 +212,25 @@ describe("registerRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ idea: "make a tiny app" })
+        body: JSON.stringify({ idea: "make a tiny app", model: "missing" })
       });
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as { runId: string };
-      expect(json.runId).toBeTruthy();
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("disabled");
+    });
+  });
+
+  it("rejects unconfigured models when the model picker is enabled", async () => {
+    vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
+    const { app } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a tiny app", model: "missing" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
     });
   });
 
@@ -220,7 +302,8 @@ describe("registerRoutes", () => {
         expect.objectContaining({
           files: expect.objectContaining({ "index.js": "throw new Error();" })
         }),
-        "Error: boom"
+        "Error: boom",
+        undefined
       );
     });
   });
@@ -255,7 +338,8 @@ describe("registerRoutes", () => {
         expect.objectContaining({
           files: expect.objectContaining({ "index.js": "export const x = 1;" })
         }),
-        "add a settings panel"
+        "add a settings panel",
+        undefined
       );
     });
   });
@@ -285,6 +369,22 @@ describe("registerRoutes", () => {
         body: JSON.stringify({ prompt: "" })
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  it("rejects unconfigured follow-up models", async () => {
+    const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "add settings", model: "missing" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
     });
   });
 
@@ -327,6 +427,22 @@ describe("registerRoutes", () => {
         body: JSON.stringify({ error: "" })
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  it("rejects unconfigured runtime repair models", async () => {
+    const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom", model: "missing" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
     });
   });
 

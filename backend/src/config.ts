@@ -9,6 +9,7 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
   OPENAI_MODEL: z.string().min(1).optional(),
+  OPENAI_MODELS: z.string().min(1).optional(),
   HOST: z.string().min(1).optional(),
   PORT: z.coerce.number().int().positive().optional(),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
@@ -33,6 +34,8 @@ export type AppConfig = {
   openaiApiKey: string;
   openaiBaseUrl: string;
   openaiModel: string;
+  openaiModels: string[];
+  modelPickerEnabled: boolean;
   host: string;
   port: number;
   requestTimeoutMs: number;
@@ -50,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     OPENAI_API_KEY: cli.apiKey ?? env.OPENAI_API_KEY,
     OPENAI_BASE_URL: cli.baseUrl ?? env.OPENAI_BASE_URL,
     OPENAI_MODEL: cli.model ?? env.OPENAI_MODEL,
+    OPENAI_MODELS: env.OPENAI_MODELS,
     HOST: cli.host ?? env.HOST,
     PORT: cli.port ?? env.PORT,
     REQUEST_TIMEOUT_MS: env.REQUEST_TIMEOUT_MS,
@@ -74,10 +78,15 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     );
   }
 
+  const openaiModel = parsed.data.OPENAI_MODEL ?? "gpt-4.1-mini";
+  const modelPickerEnabled = cli.modelPickerEnabled ?? false;
+
   return {
     openaiApiKey: parsed.data.OPENAI_API_KEY,
     openaiBaseUrl: parsed.data.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
-    openaiModel: parsed.data.OPENAI_MODEL ?? "gpt-4.1-mini",
+    openaiModel,
+    openaiModels: modelPickerEnabled ? parseModelList(openaiModel, parsed.data.OPENAI_MODELS) : [openaiModel],
+    modelPickerEnabled,
     host: parsed.data.HOST ?? "0.0.0.0",
     port: parsed.data.PORT ?? 8787,
     requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000,
@@ -89,5 +98,16 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     corsOrigin: parsed.data.CORS_ORIGIN,
     trustProxy: parsed.data.TRUST_PROXY ?? false
   };
+}
+
+export function parseModelList(defaultModel: string, rawModels?: string): string[] {
+  const models = [
+    defaultModel,
+    ...(rawModels
+      ?.split(",")
+      .map((model) => model.trim())
+      .filter(Boolean) ?? [])
+  ];
+  return [...new Set(models)];
 }
 
