@@ -101,10 +101,13 @@ export class RunStore {
     this.broadcast(run, { type: "usage", metrics: run.usage });
   }
 
-  complete(id: string, files: Record<string, string>): void {
+  complete(id: string, files: Record<string, string>, summary?: string): void {
     const run = this.require(id);
     run.status = "done";
     run.files = files;
+    if (summary !== undefined) {
+      run.summary = summary;
+    }
     run.updatedAt = this.now();
     this.broadcast(run, { type: "done", files });
     run.subscribers.clear();
@@ -163,6 +166,7 @@ export class RunStore {
       status: run.status,
       logs: [...run.logs],
       files: { ...run.files },
+      summary: run.summary,
       usage: run.usage ? this.cloneUsage(run.usage) : undefined,
       error: run.error
     };

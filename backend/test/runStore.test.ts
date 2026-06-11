@@ -29,6 +29,14 @@ describe("RunStore", () => {
     expect(store.get(run.id)?.status).toBe("pending");
   });
 
+  it("persists project summary on completion", () => {
+    const store = new RunStore();
+    const run = store.create("make chess");
+    store.complete(run.id, { "index.html": "<html/>" }, "A playable chess board");
+
+    expect(store.get(run.id)?.summary).toBe("A playable chess board");
+  });
+
   it("streams logs and completion events", () => {
     const store = new RunStore();
     const run = store.create("idea");

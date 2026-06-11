@@ -280,7 +280,7 @@ export async function runGeneration(
     lastKnownFiles = project.files;
 
     store.appendLog(runId, `[${timestamp()}] All checks passed. Publishing files to editor/preview.`);
-    store.complete(runId, project.files);
+    store.complete(runId, project.files, project.summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Run failed: ${message}`);
@@ -378,7 +378,7 @@ export async function runFollowUp(
     );
 
     store.appendLog(runId, `[${timestamp()}] Follow-up checks passed. Publishing updated files.`);
-    store.complete(runId, updatedProject.files);
+    store.complete(runId, updatedProject.files, updatedProject.summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Follow-up failed: ${message}`);
@@ -475,7 +475,7 @@ export async function runRuntimeRepair(
     );
 
     store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
-    store.complete(runId, repairedProject.files);
+    store.complete(runId, repairedProject.files, repairedProject.summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
@@ -575,7 +575,7 @@ export async function runValidationRepair(
       runId,
       `[${timestamp()}] Validation repair checks passed. Publishing fixed files.`
     );
-    store.complete(runId, repairedProject.files);
+    store.complete(runId, repairedProject.files, repairedProject.summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Validation repair failed: ${message}`);

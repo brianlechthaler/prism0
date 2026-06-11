@@ -4,7 +4,7 @@ import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
 import { runFollowUp, runGeneration, runRuntimeRepair, runValidationRepair } from "./generator.js";
 import type { RunStore } from "./runStore.js";
-import type { GenerationRun } from "./types.js";
+import type { GenerationRun, GeneratedProject } from "./types.js";
 
 const GenerateBodySchema = z.object({
   idea: z.string().trim().min(3).max(2000),
@@ -86,10 +86,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       store,
       run.id,
       sourceRun.idea,
-      {
-        summary: `Generated app from run ${sourceRun.id}`,
-        files: sourceRun.files
-      },
+      projectFromSourceRun(sourceRun),
       parsed.data.prompt,
       selectedModel
     );
@@ -126,10 +123,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       store,
       run.id,
       sourceRun.idea,
-      {
-        summary: `Runtime repair for run ${sourceRun.id}`,
-        files: sourceRun.files
-      },
+      projectFromSourceRun(sourceRun),
       parsed.data.error,
       selectedModel
     );
@@ -166,10 +160,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       store,
       run.id,
       sourceRun.idea,
-      {
-        summary: `Validation repair for run ${sourceRun.id}`,
-        files: sourceRun.files
-      },
+      projectFromSourceRun(sourceRun),
       parsed.data.error,
       selectedModel
     );
@@ -260,6 +251,13 @@ function clientRateLimitKey(req: Request): string {
 
 export function routeParam(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
+}
+
+export function projectFromSourceRun(run: GenerationRun): GeneratedProject {
+  return {
+    summary: run.summary ?? run.idea,
+    files: run.files
+  };
 }
 
 export function isRepairableSourceRun(run: GenerationRun): boolean {

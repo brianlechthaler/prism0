@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import express from "express";
-import { createGenerationGuard, isRepairableSourceRun, registerRoutes, routeParam } from "../src/routes.js";
+import { createGenerationGuard, isRepairableSourceRun, projectFromSourceRun, registerRoutes, routeParam } from "../src/routes.js";
 import { RunStore } from "../src/runStore.js";
 
 const config = {
@@ -314,10 +314,14 @@ describe("registerRoutes", () => {
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp();
     const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, {
-      "index.html": "<html></html>",
-      "index.js": "export const x = 1;"
-    });
+    store.complete(
+      sourceRun.id,
+      {
+        "index.html": "<html></html>",
+        "index.js": "export const x = 1;"
+      },
+      "A tiny counter app"
+    );
 
     await withServer(app, async (port) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
@@ -336,6 +340,7 @@ describe("registerRoutes", () => {
         json.runId,
         "make app",
         expect.objectContaining({
+          summary: "A tiny counter app",
           files: expect.objectContaining({ "index.js": "export const x = 1;" })
         }),
         "add a settings panel",
@@ -631,6 +636,39 @@ describe("routeParam", () => {
     expect(routeParam("run-1")).toBe("run-1");
     expect(routeParam(["run-1", "run-2"])).toBe("");
     expect(routeParam(undefined)).toBe("");
+  });
+});
+
+describe("projectFromSourceRun", () => {
+  it("uses stored summary when available", () => {
+    expect(
+      projectFromSourceRun({
+        id: "r1",
+        idea: "make app",
+        status: "done",
+        logs: [],
+        files: { "index.js": "x" },
+        summary: "A tiny counter app"
+      })
+    ).toEqual({
+      summary: "A tiny counter app",
+      files: { "index.js": "x" }
+    });
+  });
+
+  it("falls back to the original idea when summary is missing", () => {
+    expect(
+      projectFromSourceRun({
+        id: "r1",
+        idea: "make app",
+        status: "done",
+        logs: [],
+        files: { "index.js": "x" }
+      })
+    ).toEqual({
+      summary: "make app",
+      files: { "index.js": "x" }
+    });
   });
 });
 
