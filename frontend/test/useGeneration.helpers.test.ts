@@ -3,6 +3,7 @@ import {
   applyUsageUpdate,
   appendLogLine,
   completeGeneration,
+  extractValidationErrorFromLogs,
   failGeneration,
   type RunUsageMetrics
 } from "../src/hooks/useGeneration";
@@ -71,6 +72,47 @@ describe("failGeneration", () => {
   it("preserves usage metrics", () => {
     expect(failGeneration({ kind: "generating", runId: "r1", logs: [], usage }, "boom").usage).toBe(
       usage
+    );
+  });
+
+  it("preserves repairable run context", () => {
+    expect(
+      failGeneration(
+        { kind: "generating", runId: "r1", logs: ["step"] },
+        "lint still failing",
+        {
+          runId: "r1",
+          files: { "index.js": "broken();" },
+          repairable: true
+        }
+      )
+    ).toEqual({
+      kind: "error",
+      message: "lint still failing",
+      logs: ["step"],
+      runId: "r1",
+      files: { "index.js": "broken();" },
+      repairable: true
+    });
+  });
+});
+
+describe("extractValidationErrorFromLogs", () => {
+  it("returns the last validation error line when present", () => {
+    expect(
+      extractValidationErrorFromLogs(
+        [
+          "[2026-01-01T00:00:00.000Z] Validation error: first failure",
+          "[2026-01-01T00:00:01.000Z] Validation error: final failure"
+        ],
+        "fallback"
+      )
+    ).toBe("final failure");
+  });
+
+  it("falls back to the error message when no validation log exists", () => {
+    expect(extractValidationErrorFromLogs(["Run failed"], "lint still failing")).toBe(
+      "lint still failing"
     );
   });
 });

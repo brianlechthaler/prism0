@@ -3,14 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { App } from "../src/ui/App";
 
-const { followUp, repair, start } = vi.hoisted(() => ({
+const { followUp, repair, repairValidation, start } = vi.hoisted(() => ({
   followUp: vi.fn(),
   repair: vi.fn(),
+  repairValidation: vi.fn(),
   start: vi.fn()
 }));
 
-vi.mock("@codesandbox/sandpack-react", () => ({
-  Sandpack: () => <div data-testid="sandpack">sandpack</div>
+vi.mock("../src/ui/EditorPreview", () => ({
+  EditorPreview: () => <div data-testid="editor-preview">editor preview</div>
 }));
 
 vi.mock("../src/hooks/useGeneration", () => ({
@@ -35,6 +36,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
     },
     start,
     repair,
+    repairValidation,
     followUp
   })
 }));
@@ -43,13 +45,14 @@ describe("App ready state", () => {
   beforeEach(() => {
     followUp.mockClear();
     repair.mockClear();
+    repairValidation.mockClear();
     start.mockClear();
   });
 
-  it("shows download link and sandpack editor", async () => {
+  it("shows download link and editor preview", async () => {
     render(<App />);
     expect(screen.getByText(/download zip/i)).toBeInTheDocument();
-    expect(await screen.findByTestId("sandpack")).toBeInTheDocument();
+    expect(await screen.findByTestId("editor-preview")).toBeInTheDocument();
   });
 
   it("submits ready-state prompts as follow-up changes by default", async () => {

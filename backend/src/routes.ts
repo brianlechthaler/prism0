@@ -2,8 +2,9 @@ import type { Express, Request, RequestHandler } from "express";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
-import { runFollowUp, runGeneration, runRuntimeRepair } from "./generator.js";
+import { runFollowUp, runGeneration, runRuntimeRepair, runValidationRepair } from "./generator.js";
 import type { RunStore } from "./runStore.js";
+import type { GenerationRun } from "./types.js";
 
 const GenerateBodySchema = z.object({
   idea: z.string().trim().min(3).max(2000),
@@ -11,6 +12,11 @@ const GenerateBodySchema = z.object({
 });
 
 const RuntimeFixBodySchema = z.object({
+  error: z.string().trim().min(1).max(8000),
+  model: z.string().trim().min(1).max(200).optional()
+});
+
+const ValidationFixBodySchema = z.object({
   error: z.string().trim().min(1).max(8000),
   model: z.string().trim().min(1).max(200).optional()
 });
@@ -97,7 +103,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
-    if (sourceRun.status !== "done" || Object.keys(sourceRun.files).length === 0) {
+    if (!isRepairableSourceRun(sourceRun)) {
       res.status(409).send("Project is not ready to repair");
       return;
     }
@@ -122,6 +128,46 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       sourceRun.idea,
       {
         summary: `Runtime repair for run ${sourceRun.id}`,
+        files: sourceRun.files
+      },
+      parsed.data.error,
+      selectedModel
+    );
+    res.json({ runId: run.id });
+  });
+
+  app.post("/api/generate/:runId/validation-fix", generationGuard, (req, res) => {
+    const sourceRun = store.get(routeParam(req.params.runId));
+    if (!sourceRun) {
+      res.status(404).send("Run not found");
+      return;
+    }
+
+    if (!isRepairableSourceRun(sourceRun)) {
+      res.status(409).send("Project is not ready to repair");
+      return;
+    }
+
+    const parsed = ValidationFixBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).send(parsed.error.issues.map((i) => i.message).join("; "));
+      return;
+    }
+
+    const selectedModel = validateSelectedModel(config, parsed.data.model);
+    if (selectedModel instanceof Error) {
+      res.status(400).send(selectedModel.message);
+      return;
+    }
+
+    const run = store.create(sourceRun.idea);
+    void runValidationRepair(
+      config,
+      store,
+      run.id,
+      sourceRun.idea,
+      {
+        summary: `Validation repair for run ${sourceRun.id}`,
         files: sourceRun.files
       },
       parsed.data.error,
@@ -214,6 +260,12 @@ function clientRateLimitKey(req: Request): string {
 
 export function routeParam(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
+}
+
+export function isRepairableSourceRun(run: GenerationRun): boolean {
+  return (
+    Object.keys(run.files).length > 0 && (run.status === "done" || run.status === "error")
+  );
 }
 
 export function validateSelectedModel(config: AppConfig, model?: string): string | undefined | Error {

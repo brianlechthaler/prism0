@@ -106,6 +106,24 @@ describe("RunStore", () => {
     expect(replay).toEqual(["error"]);
   });
 
+  it("includes repairable files in failed run error events", () => {
+    const store = new RunStore();
+    const run = store.create("idea");
+    store.setFiles(run.id, { "index.js": "broken();" });
+    store.fail(run.id, "lint still failing");
+
+    const replay: Array<{ type: string; files?: Record<string, string>; repairable?: boolean }> = [];
+    store.subscribe(run.id, (msg) => {
+      replay.push(msg);
+    });
+
+    expect(replay[0]).toMatchObject({
+      type: "error",
+      files: { "index.js": "broken();" },
+      repairable: true
+    });
+  });
+
   it("updates status and files", () => {
     const store = new RunStore();
     const run = store.create("idea");
