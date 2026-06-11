@@ -13,6 +13,7 @@ const config = {
   port: 8787,
   requestTimeoutMs: 120_000,
   contextWindowTokens: 128_000,
+  contextCompressThreshold: 0.9,
   maxRuns: 100,
   maxActiveRuns: 5,
   generationRateLimitWindowMs: 60_000,
@@ -231,6 +232,59 @@ describe("runGeneration", () => {
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
     expect(final?.logs.some((l) => l.includes("JSON parse attempt 1/"))).toBe(true);
     expect(final?.streams.content).toContain("x".repeat(500));
+  });
+
+  it("compresses run context before JSON fixes when usage nears the limit", async () => {
+    const llm = await import("../src/llm.js");
+    const compressionConfig = {
+      ...config,
+      contextWindowTokens: 100,
+      contextCompressThreshold: 0.9
+    };
+
+    vi.spyOn(llm, "generateProjectFromIdea").mockImplementation(
+      async (_config, _idea, handlers) => {
+        handlers.onUsage?.({
+          kind: "generate",
+          promptTokens: 80,
+          completionTokens: 12,
+          reasoningTokens: 0
+        });
+        return "{ bad json }";
+      }
+    );
+    vi.spyOn(llm, "compressRunContextWithModel").mockResolvedValue(
+      JSON.stringify({ summary: "Built a todo app with add/remove actions." })
+    );
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, idea, _invalid, _error, handlers, options) => {
+        expect(idea).toContain("Prior run context (compressed):");
+        expect(options?.contextSummary).toBe("Built a todo app with add/remove actions.");
+        handlers?.onUsage?.({
+          kind: "json_fix",
+          promptTokens: 10,
+          completionTokens: 5,
+          reasoningTokens: 0
+        });
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(compressionConfig, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.compressRunContextWithModel).toHaveBeenCalledTimes(1);
+    expect(final?.logs.some((l) => l.includes("compressing run context"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("usage counter reset"))).toBe(true);
+    expect(final?.usage?.totalTokens).toBe(15);
+    expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["json_fix"]);
   });
 
   it("handles stream open callbacks without open messages during JSON fixes", async () => {

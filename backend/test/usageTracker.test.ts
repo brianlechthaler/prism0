@@ -162,4 +162,63 @@ describe("RunUsageTracker", () => {
       })
     ).toThrow(/not found/i);
   });
+
+  it("detects when usage nears the configured threshold", () => {
+    const tracker = new RunUsageTracker(100);
+    expect(tracker.isNearLimit(0.9)).toBe(false);
+
+    const callId = tracker.beginCall("generate");
+    tracker.finalizeCall(callId, {
+      kind: "generate",
+      promptTokens: 80,
+      completionTokens: 10,
+      reasoningTokens: 0
+    });
+
+    expect(tracker.isNearLimit(0.9)).toBe(true);
+    expect(tracker.isNearLimit(0.95)).toBe(false);
+    expect(tracker.isNearLimit(0)).toBe(false);
+  });
+
+  it("tracks last prompt tokens and resets accumulated usage", () => {
+    const tracker = new RunUsageTracker(100);
+    const callId = tracker.beginCall("generate");
+    tracker.finalizeCall(callId, {
+      kind: "generate",
+      promptTokens: 42,
+      completionTokens: 8,
+      reasoningTokens: 0
+    });
+
+    expect(tracker.getLastPromptTokens()).toBe(42);
+    expect(tracker.snapshot().totalTokens).toBe(50);
+
+    const resetMetrics = tracker.reset();
+    expect(resetMetrics.totalTokens).toBe(0);
+    expect(resetMetrics.contextUsedPercent).toBe(0);
+    expect(tracker.getLastPromptTokens()).toBe(0);
+    expect(tracker.getCompressionCount()).toBe(1);
+  });
+
+  it("labels context compression usage buckets", () => {
+    const tracker = new RunUsageTracker(100);
+    const callId = tracker.beginCall("context_compress");
+
+    const metrics = tracker.finalizeCall(callId, {
+      kind: "context_compress",
+      promptTokens: 12,
+      completionTokens: 4,
+      reasoningTokens: 0
+    });
+
+    expect(metrics.buckets).toEqual([
+      {
+        kind: "context_compress",
+        label: "LLM context compression",
+        inputTokens: 12,
+        outputTokens: 4,
+        totalTokens: 16
+      }
+    ]);
+  });
 });

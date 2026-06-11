@@ -14,6 +14,7 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().optional(),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   OPENAI_CONTEXT_WINDOW: z.coerce.number().int().positive().optional(),
+  OPENAI_CONTEXT_COMPRESS_THRESHOLD: z.coerce.number().min(0).max(1).optional(),
   MAX_RUNS: z.coerce.number().int().positive().optional(),
   MAX_ACTIVE_RUNS: z.coerce.number().int().positive().optional(),
   GENERATION_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
@@ -40,6 +41,7 @@ export type AppConfig = {
   port: number;
   requestTimeoutMs: number;
   contextWindowTokens: number;
+  contextCompressThreshold: number;
   maxRuns: number;
   maxActiveRuns: number;
   generationRateLimitWindowMs: number;
@@ -58,6 +60,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     PORT: cli.port ?? env.PORT,
     REQUEST_TIMEOUT_MS: env.REQUEST_TIMEOUT_MS,
     OPENAI_CONTEXT_WINDOW: env.OPENAI_CONTEXT_WINDOW,
+    OPENAI_CONTEXT_COMPRESS_THRESHOLD: env.OPENAI_CONTEXT_COMPRESS_THRESHOLD,
     MAX_RUNS: env.MAX_RUNS,
     MAX_ACTIVE_RUNS: env.MAX_ACTIVE_RUNS,
     GENERATION_RATE_LIMIT_WINDOW_MS: env.GENERATION_RATE_LIMIT_WINDOW_MS,
@@ -91,6 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     port: parsed.data.PORT ?? 8787,
     requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS ?? 120_000,
     contextWindowTokens: parsed.data.OPENAI_CONTEXT_WINDOW ?? 128_000,
+    contextCompressThreshold: parsed.data.OPENAI_CONTEXT_COMPRESS_THRESHOLD ?? 0.9,
     maxRuns: parsed.data.MAX_RUNS ?? 100,
     maxActiveRuns: parsed.data.MAX_ACTIVE_RUNS ?? 5,
     generationRateLimitWindowMs: parsed.data.GENERATION_RATE_LIMIT_WINDOW_MS ?? 60_000,

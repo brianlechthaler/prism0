@@ -366,6 +366,10 @@ body {
   background: #fb7185;
 }
 
+.usageSegment-context_compress {
+  background: #a78bfa;
+}
+
 .usageStats {
   margin-top: 10px;
   display: grid;

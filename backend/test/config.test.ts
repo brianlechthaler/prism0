@@ -13,6 +13,7 @@ describe("loadConfig", () => {
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
     expect(cfg.contextWindowTokens).toBe(128_000);
+    expect(cfg.contextCompressThreshold).toBe(0.9);
     expect(cfg.maxRuns).toBe(100);
     expect(cfg.maxActiveRuns).toBe(5);
     expect(cfg.generationRateLimitWindowMs).toBe(60_000);
@@ -29,6 +30,16 @@ describe("loadConfig", () => {
   it("accepts context window override from env", () => {
     const cfg = loadConfig({ OPENAI_API_KEY: "k", OPENAI_CONTEXT_WINDOW: "200000" });
     expect(cfg.contextWindowTokens).toBe(200_000);
+  });
+
+  it("accepts context compress threshold override from env", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", OPENAI_CONTEXT_COMPRESS_THRESHOLD: "0.75" });
+    expect(cfg.contextCompressThreshold).toBe(0.75);
+  });
+
+  it("accepts zero context compress threshold to disable compression", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", OPENAI_CONTEXT_COMPRESS_THRESHOLD: "0" });
+    expect(cfg.contextCompressThreshold).toBe(0);
   });
 
   it("accepts max run retention override from env", () => {

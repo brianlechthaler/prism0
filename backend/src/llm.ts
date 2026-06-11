@@ -272,13 +272,22 @@ export async function fixInvalidJsonResponse(
   invalidResponse: string,
   parseError: string,
   handlers: StreamHandlers = {},
-  options: ModelRequestOptions = {}
+  options: ModelRequestOptions & { contextSummary?: string } = {}
 ): Promise<string> {
   return streamProjectCompletion(
     config,
-    buildJsonFixPrompt(idea, parseError, invalidResponse),
+    buildJsonFixPrompt(idea, parseError, invalidResponse, options.contextSummary),
     "json_fix",
     handlers,
     options
   );
+}
+
+export async function compressRunContextWithModel(
+  config: AppConfig,
+  prompt: string,
+  handlers: StreamHandlers = {},
+  options: ModelRequestOptions = {}
+): Promise<string> {
+  return streamProjectCompletion(config, prompt, "context_compress", handlers, options);
 }
