@@ -257,6 +257,55 @@ body {
   font-size: 12px;
 }
 
+.yoloRow {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 170, 80, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 120, 40, 0.08);
+}
+
+.yoloToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.yoloToggle input {
+  accent-color: #ff9a3c;
+}
+
+.yoloWarning {
+  margin-top: 8px;
+  color: #ffb86a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.yoloBanner {
+  margin: 12px 14px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 170, 80, 0.45);
+  border-radius: 12px;
+  background: rgba(255, 120, 40, 0.12);
+  color: #ffd4a8;
+}
+
+.yoloBannerTitle {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.yoloBanner p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .grid {
   margin-top: 14px;
   display: grid;

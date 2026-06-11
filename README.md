@@ -53,6 +53,8 @@ export OPENAI_MODEL="nvidia/nemotron-3-ultra-550b-a55b"
 
 The model picker and multi-model fallback feature is disabled by default. Start the backend with `--enable-model-picker` and set `OPENAI_MODELS` to a comma-separated list to populate the frontend picker and backend fallback order. For each generation, follow-up, or repair run, the backend tries the selected model first and falls back through the remaining configured entries if a model request fails.
 
+**YOLO mode** skips the backend validation harness (ESLint + Vitest) for faster generation. It is disabled by default; start the backend with `--enable-yolo-mode` to expose a checkbox in the UI. When enabled, the UI warns that output may be unsafe, broken, or fail in the preview. Repair flows still run validation.
+
 ## Run in dev
 
 ```bash

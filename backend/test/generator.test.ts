@@ -9,6 +9,7 @@ const config = {
   openaiModel: "m",
   openaiModels: ["m"],
   modelPickerEnabled: false,
+  yoloModeEnabled: false,
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -76,6 +77,23 @@ describe("runGeneration", () => {
     expect(final?.usage?.inputTokens).toBe(100);
     expect(final?.usage?.outputTokens).toBe(30);
     expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["thinking", "generate"]);
+  });
+
+  it("skips validation when YOLO mode is requested", async () => {
+    const validateSpy = vi.spyOn(validateModule, "validateGeneratedProject");
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockResolvedValue(
+      JSON.stringify(validPayload)
+    );
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea, undefined, { skipValidation: true });
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(validateSpy).not.toHaveBeenCalled();
+    expect(final?.logs.some((l) => l.includes("YOLO mode: skipping validation harness"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Skipping validation (YOLO mode)"))).toBe(true);
   });
 
   it("streams LLM thinking and content chunks to the run store", async () => {
@@ -595,6 +613,36 @@ describe("runGeneration", () => {
     expect(final?.logs.some((l) => l.includes("follow-up run"))).toBe(true);
     expect(final?.streams.content).toContain("x".repeat(500));
     expect(final?.logs.some((l) => l.includes("Follow-up checks passed"))).toBe(true);
+  });
+
+  it("skips validation on follow-up when YOLO mode is requested", async () => {
+    const validateSpy = vi.spyOn(validateModule, "validateGeneratedProject");
+    vi.spyOn(await import("../src/llm.js"), "updateProjectFromFollowUp").mockResolvedValue(
+      JSON.stringify(validPayload)
+    );
+
+    const store = new RunStore();
+    const run = store.create("make counter");
+    await runFollowUp(
+      config,
+      store,
+      run.id,
+      "make counter",
+      { summary: "counter", files: { "index.js": "export const count = 0;" } },
+      "add a reset button",
+      undefined,
+      { skipValidation: true }
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(validateSpy).not.toHaveBeenCalled();
+    expect(
+      final?.logs.some((l) => l.includes("YOLO mode enabled for this follow-up"))
+    ).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Follow-up validation skipped (YOLO mode)"))).toBe(
+      true
+    );
   });
 
   it("retries JSON parsing when follow-up returns invalid JSON", async () => {

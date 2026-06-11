@@ -21,6 +21,7 @@ const testConfig = {
   openaiModel: "m",
   openaiModels: ["m"],
   modelPickerEnabled: false,
+  yoloModeEnabled: false,
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,

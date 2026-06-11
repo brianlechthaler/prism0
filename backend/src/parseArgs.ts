@@ -3,6 +3,7 @@ export type CliArgs = {
   baseUrl?: string;
   model?: string;
   modelPickerEnabled?: boolean;
+  yoloModeEnabled?: boolean;
   host?: string;
   port?: number;
 };
@@ -28,6 +29,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
       args.modelPickerEnabled = true;
     } else if (token === "--disable-model-picker") {
       args.modelPickerEnabled = false;
+    } else if (token === "--enable-yolo-mode") {
+      args.yoloModeEnabled = true;
+    } else if (token === "--disable-yolo-mode") {
+      args.yoloModeEnabled = false;
     } else if (token === "--host" && hasValue) {
       args.host = next;
       i++;

@@ -79,6 +79,7 @@ export type ModelOptionsState = {
   enabled: boolean;
   defaultModel: string;
   models: string[];
+  yoloModeEnabled: boolean;
   isLoading: boolean;
   error?: string;
 };
@@ -87,10 +88,24 @@ type ModelOptionsResponse = {
   enabled: boolean;
   defaultModel: string;
   models: string[];
+  yoloModeEnabled: boolean;
 };
 
-function requestBodyWithModel<T extends Record<string, unknown>>(body: T, model?: string): string {
-  return JSON.stringify(model ? { ...body, model } : body);
+export type GenerationRequestOptions = {
+  yolo?: boolean;
+};
+
+function requestBodyWithModel<T extends Record<string, unknown>>(
+  body: T,
+  model?: string,
+  options?: GenerationRequestOptions
+): string {
+  const payload = {
+    ...body,
+    ...(model ? { model } : {}),
+    ...(options?.yolo ? { yolo: true } : {})
+  };
+  return JSON.stringify(payload);
 }
 
 export function appendLogLine(state: GenerationState, line: string): GenerationState {
@@ -157,6 +172,15 @@ export function extractValidationErrorFromLogs(logs: string[], fallbackMessage: 
   return fallbackMessage;
 }
 
+export function isYoloRun(logs: string[]): boolean {
+  return logs.some(
+    (line) =>
+      line.includes("YOLO mode: skipping validation harness") ||
+      line.includes("YOLO mode enabled for this run") ||
+      line.includes("YOLO mode enabled for this follow-up")
+  );
+}
+
 export function applyUsageUpdate(
   state: GenerationState,
   usage: RunUsageMetrics
@@ -172,6 +196,7 @@ export function useModelOptions() {
     enabled: false,
     defaultModel: "",
     models: [],
+    yoloModeEnabled: false,
     isLoading: true
   });
 
@@ -191,6 +216,7 @@ export function useModelOptions() {
           enabled: json.enabled,
           defaultModel: json.defaultModel,
           models: json.models,
+          yoloModeEnabled: json.yoloModeEnabled,
           isLoading: false
         });
       } catch (error) {
@@ -199,6 +225,7 @@ export function useModelOptions() {
           enabled: false,
           defaultModel: "",
           models: [],
+          yoloModeEnabled: false,
           isLoading: false,
           error: error instanceof Error ? error.message : String(error)
         });
@@ -259,14 +286,14 @@ export function useGeneration() {
   }, []);
 
   const start = useCallback(
-    async (idea: string, model?: string) => {
+    async (idea: string, model?: string, options?: GenerationRequestOptions) => {
       eventSourceRef.current?.close();
       setState({ kind: "generating", runId: "", logs: ["Starting…"], streams: emptyRunStreams() });
 
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: requestBodyWithModel({ idea }, model)
+        body: requestBodyWithModel({ idea }, model, options)
       });
 
       if (!res.ok) {
@@ -322,7 +349,7 @@ export function useGeneration() {
   );
 
   const followUp = useCallback(
-    async (runId: string, prompt: string, model?: string) => {
+    async (runId: string, prompt: string, model?: string, options?: GenerationRequestOptions) => {
       eventSourceRef.current?.close();
       setState({
         kind: "generating",
@@ -334,7 +361,7 @@ export function useGeneration() {
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: requestBodyWithModel({ prompt }, model)
+        body: requestBodyWithModel({ prompt }, model, options)
       });
 
       if (!res.ok) {

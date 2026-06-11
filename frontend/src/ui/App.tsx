@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   emptyRunStreams,
   extractValidationErrorFromLogs,
+  isYoloRun,
   useGeneration,
   useModelOptions
 } from "../hooks/useGeneration";
@@ -103,6 +104,7 @@ export function App() {
   const [isIdeaMultiline, setIsIdeaMultiline] = React.useState(false);
   const [readySubmissionMode, setReadySubmissionMode] =
     React.useState<ReadySubmissionMode>("follow-up");
+  const [yoloMode, setYoloMode] = React.useState(false);
   const [previewError, setPreviewError] = React.useState<PreviewRuntimeError | null>(null);
   const [bundlerError, setBundlerError] = React.useState<string | undefined>();
   const { state, start, repair, repairValidation, followUp } = useGeneration();
@@ -176,6 +178,8 @@ export function App() {
     state.kind === "error" && state.repairable && state.runId && state.files
       ? extractValidationErrorFromLogs(state.logs, state.message)
       : undefined;
+  const yoloRunActive = state.kind === "ready" && isYoloRun(state.logs);
+  const generationOptions = yoloMode ? { yolo: true as const } : undefined;
   const handleBundlerError = useCallback((message: string) => {
     setBundlerError(message);
   }, []);
@@ -191,11 +195,11 @@ export function App() {
 
   const submitPrompt = () => {
     if (state.kind === "ready" && readySubmissionMode === "follow-up") {
-      void followUp(state.runId, trimmedIdea, activeModel);
+      void followUp(state.runId, trimmedIdea, activeModel, generationOptions);
       return;
     }
 
-    void start(trimmedIdea, activeModel);
+    void start(trimmedIdea, activeModel, generationOptions);
   };
 
   return (
@@ -282,6 +286,24 @@ export function App() {
             </div>
           ) : null}
 
+          {modelOptions.yoloModeEnabled ? (
+            <div className="yoloRow">
+              <label className="yoloToggle">
+                <input
+                  type="checkbox"
+                  checked={yoloMode}
+                  onChange={(e) => setYoloMode(e.target.checked)}
+                  disabled={isGenerating}
+                />
+                <span>YOLO mode — skip lint/tests</span>
+              </label>
+              <div className="yoloWarning" role="note">
+                Faster generation without the backend validation harness. Code may be unsafe, broken,
+                or fail in the preview. Use only when you accept unverified output.
+              </div>
+            </div>
+          ) : null}
+
           {canFollowUp ? (
             <fieldset className="promptMode" aria-label="Prompt behavior">
               <legend>Use this prompt to:</legend>
@@ -349,6 +371,15 @@ export function App() {
             <div className="panelTitle">Editor + Preview</div>
             {editorFiles ? (
               <>
+                {yoloRunActive ? (
+                  <div className="yoloBanner" role="alert">
+                    <div className="yoloBannerTitle">Generated without validation (YOLO mode)</div>
+                    <p>
+                      ESLint and Vitest were not run. The preview may crash, tests may be missing,
+                      and the code may not work as expected.
+                    </p>
+                  </div>
+                ) : null}
                 <React.Suspense fallback={<div className="placeholder">Loading editor…</div>}>
                   <LazyEditorPreview files={editorFiles} onBundlerError={handleBundlerError} />
                 </React.Suspense>

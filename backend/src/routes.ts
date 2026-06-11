@@ -8,7 +8,8 @@ import type { GenerationRun, GeneratedProject } from "./types.js";
 
 const GenerateBodySchema = z.object({
   idea: z.string().trim().min(3).max(2000),
-  model: z.string().trim().min(1).max(200).optional()
+  model: z.string().trim().min(1).max(200).optional(),
+  yolo: z.boolean().optional()
 });
 
 const RuntimeFixBodySchema = z.object({
@@ -23,7 +24,8 @@ const ValidationFixBodySchema = z.object({
 
 const FollowUpBodySchema = z.object({
   prompt: z.string().trim().min(3).max(2000),
-  model: z.string().trim().min(1).max(200).optional()
+  model: z.string().trim().min(1).max(200).optional(),
+  yolo: z.boolean().optional()
 });
 
 export function registerRoutes(app: Express, config: AppConfig, store: RunStore): void {
@@ -33,7 +35,8 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     res.json({
       enabled: config.modelPickerEnabled,
       defaultModel: config.openaiModel,
-      models: config.modelPickerEnabled ? config.openaiModels : []
+      models: config.modelPickerEnabled ? config.openaiModels : [],
+      yoloModeEnabled: config.yoloModeEnabled
     });
   });
 
@@ -50,8 +53,16 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const skipValidation = validateYoloRequest(config, parsed.data.yolo);
+    if (skipValidation instanceof Error) {
+      res.status(400).send(skipValidation.message);
+      return;
+    }
+
     const run = store.create(parsed.data.idea);
-    void runGeneration(config, store, run.id, parsed.data.idea, selectedModel);
+    void runGeneration(config, store, run.id, parsed.data.idea, selectedModel, {
+      skipValidation
+    });
     res.json({ runId: run.id });
   });
 
@@ -79,6 +90,12 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const skipValidation = validateYoloRequest(config, parsed.data.yolo);
+    if (skipValidation instanceof Error) {
+      res.status(400).send(skipValidation.message);
+      return;
+    }
+
     const followUpIdea = `${sourceRun.idea}\n\nFollow-up request: ${parsed.data.prompt}`;
     const run = store.create(followUpIdea);
     void runFollowUp(
@@ -88,7 +105,8 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       sourceRun.idea,
       projectFromSourceRun(sourceRun),
       parsed.data.prompt,
-      selectedModel
+      selectedModel,
+      { skipValidation }
     );
     res.json({ runId: run.id });
   });
@@ -273,4 +291,10 @@ export function validateSelectedModel(config: AppConfig, model?: string): string
   return new Error(
     `Model "${model}" is not configured. Available models: ${config.openaiModels.join(", ")}`
   );
+}
+
+export function validateYoloRequest(config: AppConfig, yolo?: boolean): boolean | Error {
+  if (!yolo) return false;
+  if (!config.yoloModeEnabled) return new Error("YOLO mode is disabled");
+  return true;
 }

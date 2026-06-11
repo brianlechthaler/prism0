@@ -20,16 +20,26 @@ function useAutoScroll<T extends HTMLElement>(value: unknown) {
 function splitValidationLogs(logs: string[]) {
   const activity: string[] = [];
   const validation: string[] = [];
+  let yoloSkipped = false;
 
   for (const line of logs) {
-    if (line.includes("[validation]") || line.includes("[eslint]") || line.includes("[vitest]")) {
+    if (line.includes("YOLO mode: skipping validation harness")) {
+      yoloSkipped = true;
+      validation.push(line);
+    } else if (
+      line.includes("YOLO mode enabled for this run") ||
+      line.includes("YOLO mode enabled for this follow-up")
+    ) {
+      yoloSkipped = true;
+      activity.push(line);
+    } else if (line.includes("[validation]") || line.includes("[eslint]") || line.includes("[vitest]")) {
       validation.push(line);
     } else {
       activity.push(line);
     }
   }
 
-  return { activity, validation };
+  return { activity, validation, yoloSkipped };
 }
 
 function StreamSection({
@@ -56,9 +66,12 @@ function StreamSection({
 }
 
 export function ProgressPanel({ logs, streams, usage, placeholder }: ProgressPanelProps) {
-  const { activity, validation } = useMemo(() => splitValidationLogs(logs), [logs]);
+  const { activity, validation, yoloSkipped } = useMemo(() => splitValidationLogs(logs), [logs]);
   const activityRef = useAutoScroll<HTMLDivElement>(activity.join("\n"));
   const validationRef = useAutoScroll<HTMLDivElement>(validation.join("\n"));
+  const validationEmptyText = yoloSkipped
+    ? "Validation skipped (YOLO mode). ESLint and Vitest were not run."
+    : "ESLint and Vitest output from the backend validation pipeline will appear here.";
 
   return (
     <div className="progressPanel">
@@ -81,9 +94,7 @@ export function ProgressPanel({ logs, streams, usage, placeholder }: ProgressPan
       <div className="logSection">
         <div className="logSectionTitle">Validation harness</div>
         <div className="log logValidation" role="log" aria-live="polite" ref={validationRef}>
-          {validation.length > 0
-            ? validation.join("\n")
-            : "ESLint and Vitest output from the backend validation pipeline will appear here."}
+          {validation.length > 0 ? validation.join("\n") : validationEmptyText}
         </div>
       </div>
 

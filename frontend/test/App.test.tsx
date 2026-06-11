@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     enabled: true,
     defaultModel: "model-a",
     models: ["model-a", "model-b"],
+    yoloModeEnabled: false,
     isLoading: false
   } as ModelOptionsState,
   start: vi.fn()
@@ -32,6 +33,7 @@ describe("App", () => {
       enabled: true,
       defaultModel: "model-a",
       models: ["model-a", "model-b"],
+      yoloModeEnabled: false,
       isLoading: false
     };
     mocks.start.mockClear();
@@ -49,6 +51,7 @@ describe("App", () => {
       enabled: true,
       defaultModel: "",
       models: [],
+      yoloModeEnabled: false,
       isLoading: true
     };
     const view = render(<App />);
@@ -58,6 +61,7 @@ describe("App", () => {
       enabled: true,
       defaultModel: "",
       models: [],
+      yoloModeEnabled: false,
       isLoading: false,
       error: "unavailable"
     };
@@ -70,6 +74,7 @@ describe("App", () => {
       enabled: false,
       defaultModel: "model-a",
       models: [],
+      yoloModeEnabled: false,
       isLoading: false
     };
 
@@ -79,7 +84,7 @@ describe("App", () => {
       target: { value: "make pong" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(mocks.start).toHaveBeenCalledWith("make pong", undefined);
+    expect(mocks.start).toHaveBeenCalledWith("make pong", undefined, undefined);
   });
 
   it("expands the idea input into a paragraph field on click", () => {
@@ -97,7 +102,7 @@ describe("App", () => {
       target: { value: "make pong" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-a");
+    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-a", undefined);
   });
 
   it("submits the selected model", () => {
@@ -109,7 +114,7 @@ describe("App", () => {
       target: { value: "model-b" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-b");
+    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-b", undefined);
   });
 
   it("resets a stale selected model when options change", async () => {
@@ -123,6 +128,7 @@ describe("App", () => {
       enabled: true,
       defaultModel: "model-a",
       models: ["model-a"],
+      yoloModeEnabled: false,
       isLoading: false
     };
     view.rerender(<App />);
@@ -142,6 +148,7 @@ describe("App", () => {
       enabled: true,
       defaultModel: "",
       models: ["model-c"],
+      yoloModeEnabled: false,
       isLoading: false
     };
     view.rerender(<App />);
@@ -161,6 +168,7 @@ describe("App", () => {
       enabled: true,
       defaultModel: "",
       models: [],
+      yoloModeEnabled: false,
       isLoading: false
     };
     view.rerender(<App />);
@@ -177,6 +185,32 @@ describe("App", () => {
       target: { value: "make pong\nwith neon particles" }
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-    expect(mocks.start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a");
+    expect(mocks.start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a", undefined);
+  });
+
+  it("shows YOLO mode controls when enabled and submits the flag", () => {
+    mocks.modelOptions = {
+      enabled: false,
+      defaultModel: "model-a",
+      models: [],
+      yoloModeEnabled: true,
+      isLoading: false
+    };
+
+    render(<App />);
+    expect(screen.getByText(/yolo mode — skip lint\/tests/i)).toBeInTheDocument();
+    expect(screen.getByText(/may be unsafe, broken/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.change(screen.getByLabelText(/what should we build/i), {
+      target: { value: "make pong" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+    expect(mocks.start).toHaveBeenCalledWith("make pong", undefined, { yolo: true });
+  });
+
+  it("hides YOLO mode controls when disabled on the backend", () => {
+    render(<App />);
+    expect(screen.queryByText(/yolo mode — skip lint\/tests/i)).not.toBeInTheDocument();
   });
 });

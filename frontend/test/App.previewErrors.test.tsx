@@ -22,10 +22,12 @@ vi.mock("../src/ui/EditorPreview", () => ({
 vi.mock("../src/hooks/useGeneration", () => ({
   emptyRunStreams: () => ({ thinking: "", content: "" }),
   extractValidationErrorFromLogs: () => "",
+  isYoloRun: () => false,
   useModelOptions: () => ({
     enabled: true,
     defaultModel: "model-a",
     models: ["model-a"],
+    yoloModeEnabled: false,
     isLoading: false
   }),
   useGeneration: () => ({
