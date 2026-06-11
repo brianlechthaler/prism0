@@ -104,6 +104,53 @@ docker run --rm -p 8787:8787 -e OPENAI_API_KEY="your-key" prism0
 
 The image exposes port `8787` by default and includes a healthcheck for `/api/health`. Inject secrets with environment variables; do not bake them into the image.
 
+#### Run with Ollama in Docker
+
+Use `scripts/ollama-docker.sh` to run **Ollama** and **prism0** in separate containers on a shared Docker network. prism0 talks to Ollama’s OpenAI-compatible API; the web UI is published on the host.
+
+Requirements:
+
+- Docker
+- For GPU inference: NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+Quick start (CPU inference):
+
+```bash
+./scripts/ollama-docker.sh start
+```
+
+Open **http://localhost:8787**. The first run pulls the default coding model (`qwen2.5-coder:32b`) and builds the local `prism0:local` image, which can take several minutes.
+
+Enable GPU acceleration on a 24 GiB card (for example RTX 3090/4090):
+
+```bash
+./scripts/ollama-docker.sh start --gpu
+# or: OLLAMA_GPU=all ./scripts/ollama-docker.sh start
+```
+
+Other commands:
+
+```bash
+./scripts/ollama-docker.sh status
+./scripts/ollama-docker.sh logs          # both containers
+./scripts/ollama-docker.sh logs ollama   # Ollama only
+./scripts/ollama-docker.sh stop
+```
+
+Useful environment overrides:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `OLLAMA_MODEL` | `qwen2.5-coder:32b` | ~19–20 GiB VRAM with `--gpu`; use `qwen2.5-coder:14b` on smaller GPUs |
+| `OLLAMA_GPU` | `0` | Set to `all` or pass `--gpu` to enable NVIDIA GPU passthrough |
+| `PRISM0_PORT` | `8787` | Host port for the web UI |
+| `SKIP_MODEL_PULL` | unset | Set to `1` to skip `ollama pull` when the model is already cached |
+| `REBUILD` | unset | Set to `1` to force a rebuild of the `prism0:local` image |
+
+Ollama model files are stored in the Docker volume `prism0-ollama-data`. `./scripts/ollama-docker.sh stop` removes the containers but keeps that volume for faster restarts.
+
+See `./scripts/ollama-docker.sh --help` for the full option list.
+
 ### Kubernetes and hosted platforms
 
 Production deployment assets are included for common targets:
