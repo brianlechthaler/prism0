@@ -6,7 +6,8 @@ const USAGE_LABELS: Record<LlmUsageKind, string> = {
   thinking: "LLM thinking",
   json_fix: "LLM JSON fixes",
   validation_fix: "LLM validation fixes",
-  runtime_fix: "LLM runtime fixes"
+  runtime_fix: "LLM runtime fixes",
+  context_compress: "LLM context compression"
 };
 
 type ActiveCall = {
@@ -26,6 +27,8 @@ export class RunUsageTracker {
   private callSequence = 0;
   private firstOutputAt: number | undefined;
   private lastOutputAt: number | undefined;
+  private lastPromptTokens = 0;
+  private compressionCount = 0;
 
   constructor(contextWindowTokens: number, now: () => number = Date.now) {
     this.contextWindowTokens = contextWindowTokens;
@@ -55,10 +58,34 @@ export class RunUsageTracker {
     );
     const primaryOutputTokens = Math.max(0, usage.completionTokens - thinkingTokens);
 
+    this.lastPromptTokens = usage.promptTokens;
     this.addInput(call.kind, usage.promptTokens);
     this.addOutput(call.kind, primaryOutputTokens - estimatedPrimary);
     this.addOutput("thinking", thinkingTokens - estimatedThinking);
     this.activeCalls.delete(callId);
+    return this.snapshot();
+  }
+
+  isNearLimit(threshold: number): boolean {
+    if (threshold <= 0) return false;
+    return this.snapshot().contextUsedPercent >= threshold * 100;
+  }
+
+  getLastPromptTokens(): number {
+    return this.lastPromptTokens;
+  }
+
+  getCompressionCount(): number {
+    return this.compressionCount;
+  }
+
+  reset(): RunUsageMetrics {
+    this.buckets.clear();
+    this.activeCalls.clear();
+    this.firstOutputAt = undefined;
+    this.lastOutputAt = undefined;
+    this.lastPromptTokens = 0;
+    this.compressionCount += 1;
     return this.snapshot();
   }
 

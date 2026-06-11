@@ -25,6 +25,7 @@ const testConfig = {
   port: 8787,
   requestTimeoutMs: 120_000,
   contextWindowTokens: 128_000,
+  contextCompressThreshold: 0.9,
   maxRuns: 100,
   maxActiveRuns: 5,
   generationRateLimitWindowMs: 60_000,

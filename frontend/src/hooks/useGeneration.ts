@@ -6,7 +6,8 @@ export type LlmUsageKind =
   | "thinking"
   | "json_fix"
   | "validation_fix"
-  | "runtime_fix";
+  | "runtime_fix"
+  | "context_compress";
 
 export type LlmUsageBucket = {
   kind: LlmUsageKind;

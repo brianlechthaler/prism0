@@ -17,6 +17,7 @@ vi.mock("openai", () => {
 });
 
 import {
+  compressRunContextWithModel,
   createOpenAiClient,
   fixInvalidJsonResponse,
   fixProjectFromRuntimeError,
@@ -36,6 +37,7 @@ const config = {
   port: 8787,
   requestTimeoutMs: 120_000,
   contextWindowTokens: 128_000,
+  contextCompressThreshold: 0.9,
   maxRuns: 100,
   maxActiveRuns: 5,
   generationRateLimitWindowMs: 60_000,
@@ -361,5 +363,38 @@ describe("llm", () => {
     expect(prompt).toContain("make tetris");
     expect(prompt).toContain("Expected property name");
     expect(prompt).toContain("{ bad json }");
+  });
+
+  it("requests JSON fixes with compressed context and truncated invalid responses", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const result = await fixInvalidJsonResponse(
+      config,
+      "make tetris",
+      "x".repeat(5000),
+      "Unexpected token",
+      {},
+      { contextSummary: "Earlier work on a tetris board." }
+    );
+
+    expect(result).toContain("fixed");
+    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    expect(prompt).toContain("Earlier work on a tetris board.");
+    expect(prompt).toContain("[truncated 1000 chars]");
+  });
+
+  it("requests context compression summaries", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: '{"summary":"compressed"}' } }] };
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const result = await compressRunContextWithModel(config, "summarize this run", {}, { selectedModel: "m" });
+
+    expect(result).toContain("compressed");
+    expect(createMock.mock.calls[0]?.[0]?.model).toBe("m");
   });
 });

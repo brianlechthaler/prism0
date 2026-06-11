@@ -213,11 +213,31 @@ Requirements:
 export function buildJsonFixPrompt(
   idea: string,
   parseError: string,
-  invalidResponse: string
+  invalidResponse: string,
+  contextSummary?: string
 ): string {
+  const compressedContext = contextSummary
+    ? `Compressed run context from earlier steps:
+"""
+${contextSummary}
+"""
+
+`
+    : "";
+
+  const responseSection = contextSummary
+    ? `Your invalid response (truncated):
+"""
+${truncateForPrompt(invalidResponse, 4000)}
+"""`
+    : `Your invalid response:
+"""
+${invalidResponse}
+"""`;
+
   return `You are prism0, an expert frontend engineer. Your previous response could not be parsed as JSON.
 
-Original app idea:
+${compressedContext}Original app idea:
 "${idea}"
 
 JSON parse error:
@@ -225,10 +245,7 @@ JSON parse error:
 ${parseError}
 """
 
-Your invalid response:
-"""
-${invalidResponse}
-"""
+${responseSection}
 
 Fix the JSON syntax so it is valid and parseable. Preserve the intended app code and file contents from your previous response.
 
@@ -253,4 +270,66 @@ JSON formatting rules (critical):
 6. Include all required files: index.html, index.js, styles.css, index.test.js, package.json.
 7. Keep file paths relative and package.json scripts exactly {"test":"vitest run","lint":"eslint ."} with no dependencies or extra scripts.
 `;
+}
+
+export function buildContextCompressionPrompt(options: {
+  idea: string;
+  project?: GeneratedProject;
+  recentLogs: string[];
+  priorSummary?: string;
+  contextUsedPercent: number;
+}): string {
+  const { idea, project, recentLogs, priorSummary, contextUsedPercent } = options;
+  const fileListing = project
+    ? Object.entries(project.files)
+        .map(([name, content]) => `- ${name} (${content.length} chars)`)
+        .join("\n")
+    : "(no project files yet)";
+  const logTail = recentLogs.slice(-40).join("\n");
+  const priorSection = priorSummary
+    ? `Prior compressed context:
+"""
+${priorSummary}
+"""
+
+`
+    : "";
+
+  return `You are prism0, an expert frontend engineer. A generation run is nearing its context window limit (${contextUsedPercent.toFixed(1)}% used).
+
+Summarize the run context below so generation can continue with a fresh context window. Preserve:
+- The original app idea and requirements
+- Current project state and key implementation decisions
+- Errors encountered and fixes attempted
+- Anything still pending or in progress
+
+${priorSection}Original app idea:
+"${idea}"
+
+Current project summary:
+"${project?.summary ?? "(not generated yet)"}"
+
+Current project files:
+${fileListing}
+
+Recent run logs:
+"""
+${logTail || "(none)"}
+"""
+
+Return ONLY valid JSON (no markdown fences, no commentary) with this shape:
+{
+  "summary": "concise but complete summary of the run context"
+}
+
+JSON formatting rules (critical):
+1. Output must be a single JSON object starting with "{" and ending with "}".
+2. Use double quotes for all keys and string values.
+3. Do not wrap the JSON in markdown code fences or add any text before or after it.
+`;
+}
+
+function truncateForPrompt(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n… [truncated ${text.length - maxChars} chars]`;
 }

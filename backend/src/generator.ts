@@ -1,4 +1,5 @@
 import type { AppConfig } from "./config.js";
+import { maybeCompressRunContext } from "./contextCompression.js";
 import {
   fixInvalidJsonResponse,
   fixProjectFromRuntimeError,
@@ -10,7 +11,7 @@ import {
 import { parseGeneratedResponse } from "./parseGenerated.js";
 import { MAX_PARSE_ATTEMPTS, MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
 import type { RunStore } from "./runStore.js";
-import type { GeneratedProject, LlmCompletionUsage, LlmUsageKind } from "./types.js";
+import type { GeneratedProject, LlmCompletionUsage, LlmUsageKind, RunContextState } from "./types.js";
 import { estimateTokensFromText, RunUsageTracker } from "./usageTracker.js";
 import { validateGeneratedProject } from "./validateProject.js";
 
@@ -63,13 +64,21 @@ async function parseProjectWithRetries(
   idea: string,
   raw: string,
   handlers: StreamHandlers = {},
-  selectedModel?: string
-): Promise<GeneratedProject> {
+  selectedModel?: string,
+  project?: GeneratedProject,
+  contextState: RunContextState = {}
+): Promise<{ project: GeneratedProject; idea: string; contextState: RunContextState }> {
+  let currentIdea = idea;
+  let currentContextState = contextState;
   let lastError: unknown = new Error("Failed to parse generated project JSON after retries");
 
   for (let attempt = 1; attempt <= MAX_PARSE_ATTEMPTS; attempt++) {
     try {
-      return parseGeneratedResponse(raw);
+      return {
+        project: parseGeneratedResponse(raw),
+        idea: currentIdea,
+        contextState: currentContextState
+      };
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : String(error);
@@ -84,13 +93,25 @@ async function parseProjectWithRetries(
       );
       store.appendLog(runId, `[${timestamp()}] Parse error: ${message}`);
 
+      ({ idea: currentIdea, contextState: currentContextState } = await maybeCompressRunContext(
+        config,
+        store,
+        tracker,
+        runId,
+        currentIdea,
+        project,
+        currentContextState,
+        trackLlmUsage(store, tracker, runId, "context_compress", withModelAttemptLogs(store, runId, handlers)),
+        selectedModel
+      ));
+
       raw = await fixInvalidJsonResponse(
         config,
-        idea,
+        currentIdea,
         raw,
         message,
         trackLlmUsage(store, tracker, runId, "json_fix", withModelAttemptLogs(store, runId, handlers)),
-        { selectedModel }
+        { selectedModel, contextSummary: currentContextState.contextSummary }
       );
     }
   }
@@ -105,19 +126,24 @@ async function validateProjectWithRetries(
   runId: string,
   idea: string,
   project: GeneratedProject,
-  selectedModel?: string
-): Promise<GeneratedProject> {
+  selectedModel?: string,
+  contextState: RunContextState = {}
+): Promise<{ project: GeneratedProject; idea: string; contextState: RunContextState }> {
   store.appendLog(
     runId,
     `[${timestamp()}] Starting backend validation pipeline (lint → tests)…`
   );
 
+  let currentIdea = idea;
+  let currentProject = project;
+  let currentContextState = contextState;
+
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
     try {
-      await validateGeneratedProject(runId, project.files, (line) => {
+      await validateGeneratedProject(runId, currentProject.files, (line) => {
         store.appendLog(runId, `[${timestamp()}] [validation] ${line}`);
       });
-      return project;
+      return { project: currentProject, idea: currentIdea, contextState: currentContextState };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
@@ -131,10 +157,22 @@ async function validateProjectWithRetries(
       );
       store.appendLog(runId, `[${timestamp()}] Validation error: ${message}`);
 
+      ({ idea: currentIdea, contextState: currentContextState } = await maybeCompressRunContext(
+        config,
+        store,
+        tracker,
+        runId,
+        currentIdea,
+        currentProject,
+        currentContextState,
+        trackLlmUsage(store, tracker, runId, "context_compress", withModelAttemptLogs(store, runId)),
+        selectedModel
+      ));
+
       const raw = await fixProjectFromValidationErrors(
         config,
-        idea,
-        project,
+        currentIdea,
+        currentProject,
         message,
         trackLlmUsage(
           store,
@@ -153,19 +191,24 @@ async function validateProjectWithRetries(
       );
 
       store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
-      project = await parseProjectWithRetries(
+      const parsed = await parseProjectWithRetries(
         config,
         store,
         tracker,
         runId,
-        idea,
+        currentIdea,
         raw,
         createLlmStreamHandlers(store, runId),
-        selectedModel
+        selectedModel,
+        currentProject,
+        currentContextState
       );
+      currentProject = parsed.project;
+      currentIdea = parsed.idea;
+      currentContextState = parsed.contextState;
       store.appendLog(
         runId,
-        `[${timestamp()}] Fixed project summary: ${project.summary}`
+        `[${timestamp()}] Fixed project summary: ${currentProject.summary}`
       );
       store.appendLog(
         runId,
@@ -174,7 +217,7 @@ async function validateProjectWithRetries(
     }
   }
 
-  return project;
+  return { project: currentProject, idea: currentIdea, contextState: currentContextState };
 }
 
 export async function runGeneration(
@@ -251,7 +294,7 @@ export async function runGeneration(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing generated JSON project payload…`);
-    let project = await parseProjectWithRetries(
+    const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
@@ -261,6 +304,7 @@ export async function runGeneration(
       createLlmStreamHandlers(store, runId),
       selectedModel
     );
+    let project = parsed.project;
     store.appendLog(
       runId,
       `[${timestamp()}] Parsed project summary: ${project.summary}`
@@ -272,7 +316,17 @@ export async function runGeneration(
     );
     logParsedProjectFiles(store, runId, project.files);
 
-    project = await validateProjectWithRetries(config, store, tracker, runId, idea, project, selectedModel);
+    const validated = await validateProjectWithRetries(
+      config,
+      store,
+      tracker,
+      runId,
+      parsed.idea,
+      project,
+      selectedModel,
+      parsed.contextState
+    );
+    project = validated.project;
     lastKnownFiles = project.files;
 
     store.appendLog(runId, `[${timestamp()}] All checks passed. Publishing files to editor/preview.`);
@@ -332,7 +386,7 @@ export async function runFollowUp(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing follow-up JSON project payload…`);
-    let updatedProject = await parseProjectWithRetries(
+    const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
@@ -340,21 +394,25 @@ export async function runFollowUp(
       augmentedIdea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel
+      selectedModel,
+      project
     );
+    let updatedProject = parsed.project;
     store.appendLog(runId, `[${timestamp()}] Follow-up summary: ${updatedProject.summary}`);
     lastKnownFiles = updatedProject.files;
     logParsedProjectFiles(store, runId, updatedProject.files);
 
-    updatedProject = await validateProjectWithRetries(
+    const validated = await validateProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      augmentedIdea,
+      parsed.idea,
       updatedProject,
-      selectedModel
+      selectedModel,
+      parsed.contextState
     );
+    updatedProject = validated.project;
 
     store.appendLog(runId, `[${timestamp()}] Follow-up checks passed. Publishing updated files.`);
     store.complete(runId, updatedProject.files, updatedProject.summary);
@@ -409,7 +467,7 @@ export async function runRuntimeRepair(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
-    let repairedProject = await parseProjectWithRetries(
+    const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
@@ -417,8 +475,10 @@ export async function runRuntimeRepair(
       idea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel
+      selectedModel,
+      project
     );
+    let repairedProject = parsed.project;
     store.appendLog(
       runId,
       `[${timestamp()}] Runtime repair summary: ${repairedProject.summary}`
@@ -426,15 +486,17 @@ export async function runRuntimeRepair(
     lastKnownFiles = repairedProject.files;
     logParsedProjectFiles(store, runId, repairedProject.files);
 
-    repairedProject = await validateProjectWithRetries(
+    const validated = await validateProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      idea,
+      parsed.idea,
       repairedProject,
-      selectedModel
+      selectedModel,
+      parsed.contextState
     );
+    repairedProject = validated.project;
 
     store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
     store.complete(runId, repairedProject.files, repairedProject.summary);
@@ -489,7 +551,7 @@ export async function runValidationRepair(
     );
 
     store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
-    let repairedProject = await parseProjectWithRetries(
+    const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
@@ -497,8 +559,10 @@ export async function runValidationRepair(
       idea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel
+      selectedModel,
+      project
     );
+    let repairedProject = parsed.project;
     store.appendLog(
       runId,
       `[${timestamp()}] Validation repair summary: ${repairedProject.summary}`
@@ -506,15 +570,17 @@ export async function runValidationRepair(
     lastKnownFiles = repairedProject.files;
     logParsedProjectFiles(store, runId, repairedProject.files);
 
-    repairedProject = await validateProjectWithRetries(
+    const validated = await validateProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      idea,
+      parsed.idea,
       repairedProject,
-      selectedModel
+      selectedModel,
+      parsed.contextState
     );
+    repairedProject = validated.project;
 
     store.appendLog(
       runId,

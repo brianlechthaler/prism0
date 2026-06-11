@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildContextCompressionPrompt,
   buildFixPrompt,
   buildFollowUpPrompt,
   buildGenerationPrompt,
@@ -45,6 +46,19 @@ describe("buildJsonFixPrompt", () => {
     expect(prompt).toContain("{ bad json }");
     expect(prompt).toContain("Fix the JSON syntax");
   });
+
+  it("includes compressed context and truncates invalid responses when provided", () => {
+    const prompt = buildJsonFixPrompt(
+      "make a todo app",
+      "Unexpected token",
+      "x".repeat(5000),
+      "Earlier the model built a todo list with add/remove actions."
+    );
+    expect(prompt).toContain("Compressed run context from earlier steps");
+    expect(prompt).toContain("Earlier the model built a todo list");
+    expect(prompt).toContain("[truncated 1000 chars]");
+    expect(prompt).not.toContain("x".repeat(5000));
+  });
 });
 
 describe("buildFixPrompt", () => {
@@ -74,5 +88,55 @@ describe("buildRuntimeFixPrompt", () => {
     expect(prompt).toContain("ReferenceError: count is not defined");
     expect(prompt).toContain("throw new Error");
     expect(prompt).toContain("runtime crash");
+  });
+});
+
+describe("buildContextCompressionPrompt", () => {
+  it("includes run context, logs, and prior summaries", () => {
+    const prompt = buildContextCompressionPrompt({
+      idea: "make counter",
+      project: {
+        summary: "counter app",
+        files: { "index.js": "export const count = 0;" }
+      },
+      recentLogs: ["log line one", "log line two"],
+      priorSummary: "already compressed once",
+      contextUsedPercent: 92.5
+    });
+
+    expect(prompt).toContain("make counter");
+    expect(prompt).toContain("counter app");
+    expect(prompt).toContain("index.js (23 chars)");
+    expect(prompt).toContain("log line two");
+    expect(prompt).toContain("already compressed once");
+    expect(prompt).toContain("92.5% used");
+  });
+
+  it("handles missing project files and empty logs", () => {
+    const prompt = buildContextCompressionPrompt({
+      idea: "make counter",
+      recentLogs: [],
+      contextUsedPercent: 95
+    });
+
+    expect(prompt).toContain("(no project files yet)");
+    expect(prompt).toContain("(not generated yet)");
+    expect(prompt).toContain("(none)");
+  });
+});
+
+describe("buildJsonFixPrompt without compressed context", () => {
+  it("includes the full invalid response when no summary exists", () => {
+    const invalid = "short invalid json";
+    const prompt = buildJsonFixPrompt("make app", "bad json", invalid);
+    expect(prompt).toContain(invalid);
+    expect(prompt).not.toContain("[truncated");
+  });
+
+  it("keeps short invalid responses when compressed context is present", () => {
+    const invalid = "short invalid json";
+    const prompt = buildJsonFixPrompt("make app", "bad json", invalid, "Earlier summary.");
+    expect(prompt).toContain(invalid);
+    expect(prompt).not.toContain("[truncated");
   });
 });
