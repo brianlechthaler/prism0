@@ -12,7 +12,7 @@ readonly OLLAMA_IMAGE="${OLLAMA_IMAGE:-ollama/ollama:latest}"
 readonly PRISM0_IMAGE="${PRISM0_IMAGE:-prism0:local}"
 # qwen2.5-coder:32b (default Ollama quant) uses ~19-20 GiB VRAM — a good fit for 24 GiB GPUs.
 readonly OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5-coder:32b}"
-readonly OLLAMA_GPU="${OLLAMA_GPU:-all}"
+OLLAMA_GPU="${OLLAMA_GPU:-0}"
 readonly PRISM0_PORT="${PRISM0_PORT:-8787}"
 readonly OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 readonly OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
@@ -21,10 +21,10 @@ readonly OPENAI_CONTEXT_WINDOW="${OPENAI_CONTEXT_WINDOW:-32768}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/ollama-docker.sh [start|stop|status|logs]
+Usage: ./scripts/ollama-docker.sh [--gpu] [start|stop|status|logs]
 
 Run prism0 against Ollama in Docker. The web UI is published on the host at
-http://localhost:8787 by default.
+http://localhost:8787 by default. GPU acceleration is optional and off by default.
 
 Commands:
   start   Build the prism0 image if needed, start Ollama, pull the model, start prism0.
@@ -32,9 +32,13 @@ Commands:
   status  Show container status and recent health.
   logs    Follow logs from both containers (optional: ollama|prism0|all).
 
+Flags:
+  --gpu   Pass NVIDIA GPUs to Ollama (equivalent to OLLAMA_GPU=all)
+
 Environment overrides:
   OLLAMA_MODEL            Coding model to pull and use (default: qwen2.5-coder:32b)
-  OLLAMA_GPU              GPU devices for Ollama (default: all; set 0 for CPU-only)
+  OLLAMA_GPU              GPU devices for Ollama (default: 0 / CPU-only; use all to enable)
+  OLLAMA_ENABLE_GPU       Set to 1 to enable GPU passthrough (same as OLLAMA_GPU=all)
   PRISM0_PORT             Host port for the prism0 web UI (default: 8787)
   OLLAMA_PORT             Host port for the Ollama API (default: 11434)
   PRISM0_IMAGE            Local prism0 image tag (default: prism0:local)
@@ -48,8 +52,9 @@ need a lighter model; 40+ GiB cards can use a larger one.
 
 Examples:
   ./scripts/ollama-docker.sh start
-  OLLAMA_MODEL=qwen2.5-coder:14b OLLAMA_GPU=0 ./scripts/ollama-docker.sh start
-  PRISM0_PORT=8080 ./scripts/ollama-docker.sh start
+  ./scripts/ollama-docker.sh start --gpu
+  OLLAMA_GPU=all ./scripts/ollama-docker.sh start
+  OLLAMA_MODEL=qwen2.5-coder:14b PRISM0_PORT=8080 ./scripts/ollama-docker.sh start
   ./scripts/ollama-docker.sh stop
 EOF
 }
@@ -64,6 +69,41 @@ require_docker() {
     echo "Docker daemon is not reachable. Start Docker and try again." >&2
     exit 1
   fi
+}
+
+resolve_gpu_settings() {
+  if [[ "${OLLAMA_ENABLE_GPU:-0}" == "1" && "$OLLAMA_GPU" == "0" ]]; then
+    OLLAMA_GPU=all
+  fi
+}
+
+parse_global_flags() {
+  local -a remaining=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --gpu)
+        OLLAMA_GPU=all
+        shift
+        ;;
+      -h | --help | help)
+        remaining+=("$1")
+        shift
+        ;;
+      *)
+        remaining+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if ((${#remaining[@]})); then
+    printf '%s\n' "${remaining[@]}"
+  fi
+}
+
+gpu_enabled() {
+  [[ "$OLLAMA_GPU" != "0" && "$OLLAMA_GPU" != "none" ]]
 }
 
 ensure_network() {
@@ -139,14 +179,15 @@ start_ollama() {
   remove_container_if_exists "$OLLAMA_CONTAINER"
 
   local -a gpu_args=()
-  if [[ "$OLLAMA_GPU" != "0" && "$OLLAMA_GPU" != "none" ]]; then
+  if gpu_enabled; then
     if ! docker info 2>/dev/null | grep -qi nvidia; then
-      echo "Warning: Docker does not report NVIDIA GPU support." >&2
-      echo "Install the NVIDIA Container Toolkit for GPU inference, or set OLLAMA_GPU=0." >&2
+      echo "Warning: GPU acceleration requested but Docker does not report NVIDIA GPU support." >&2
+      echo "Install the NVIDIA Container Toolkit, or omit --gpu / OLLAMA_GPU for CPU inference." >&2
     fi
     gpu_args=(--gpus "$OLLAMA_GPU")
+    echo "GPU acceleration enabled (OLLAMA_GPU=${OLLAMA_GPU})."
   else
-    echo "Ollama will run without GPU passthrough (OLLAMA_GPU=${OLLAMA_GPU})." >&2
+    echo "GPU acceleration disabled (CPU inference). Use --gpu or OLLAMA_GPU=all to enable."
   fi
 
   echo "Starting Ollama container: $OLLAMA_CONTAINER (model: $OLLAMA_MODEL)"
@@ -221,9 +262,9 @@ wait_for_prism0() {
 }
 
 print_access_info() {
-  local gpu_note="GPU: ${OLLAMA_GPU} (target ~24 GiB VRAM for default model)"
-  if [[ "$OLLAMA_GPU" == "0" || "$OLLAMA_GPU" == "none" ]]; then
-    gpu_note="GPU: disabled (CPU inference)"
+  local gpu_note="GPU: disabled (CPU inference; use --gpu to enable)"
+  if gpu_enabled; then
+    gpu_note="GPU: ${OLLAMA_GPU} (target ~24 GiB VRAM for default model)"
   fi
 
   cat <<EOF
@@ -241,6 +282,7 @@ EOF
 
 cmd_start() {
   require_docker
+  resolve_gpu_settings
   start_ollama
   start_prism0
 }
@@ -303,7 +345,12 @@ cmd_logs() {
 }
 
 main() {
-  local command="${1:-start}"
+  local -a args=()
+  if ((${#@})); then
+    mapfile -t args < <(parse_global_flags "$@")
+  fi
+
+  local command="${args[0]:-start}"
 
   case "$command" in
     start)
@@ -316,7 +363,7 @@ main() {
       cmd_status
       ;;
     logs)
-      cmd_logs "${2:-all}"
+      cmd_logs "${args[1]:-all}"
       ;;
     -h | --help | help)
       usage

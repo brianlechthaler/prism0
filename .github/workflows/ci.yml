@@ -1,0 +1,225 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck workspaces
+        run: npm run typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build production artifacts
+        run: npm run build
+
+      - name: Smoke test production server
+        run: |
+          OPENAI_API_KEY=ci-smoke-test npm start &
+          server_pid=$!
+          trap "kill $server_pid" EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:8787/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Production server failed smoke test" >&2
+          exit 1
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: prism0:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        run: |
+          docker run --detach \
+            --name prism0-ci-smoke \
+            --env OPENAI_API_KEY=ci-smoke-test \
+            --publish 8787:8787 \
+            prism0:ci
+          trap 'docker rm -f prism0-ci-smoke >/dev/null 2>&1 || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:8787/api/health; then
+              exit 0
+            fi
+
+            if [ "$(docker inspect -f '{{.State.Running}}' prism0-ci-smoke 2>/dev/null)" != "true" ]; then
+              echo "Container exited before becoming healthy" >&2
+              docker logs prism0-ci-smoke >&2 || true
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          echo "Docker image failed smoke test" >&2
+          docker logs prism0-ci-smoke >&2 || true
+          exit 1
+
+  ollama-docker:
+    name: Ollama Docker stack
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate ollama-docker script
+        run: |
+          bash -n scripts/ollama-docker.sh
+          shellcheck --severity=warning scripts/ollama-docker.sh
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build prism0 image for stack test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: prism0:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test CPU-only Ollama stack
+        run: |
+          PRISM0_IMAGE=prism0:ci \
+          OLLAMA_GPU=0 \
+          SKIP_MODEL_PULL=1 \
+          ./scripts/ollama-docker.sh start
+          trap './scripts/ollama-docker.sh stop >/dev/null 2>&1 || true' EXIT
+          ./scripts/ollama-docker.sh status
+          docker exec prism0-ollama ollama list
+
+      - name: Verify GPU remains opt-in
+        run: |
+          ./scripts/ollama-docker.sh --help | grep -F "GPU acceleration is optional and off by default"
+          grep -q 'OLLAMA_GPU="${OLLAMA_GPU:-0}"' scripts/ollama-docker.sh
+
+  kubernetes:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+
+      - name: Install kubeconform
+        run: go install github.com/yannh/kubeconform/cmd/kubeconform@latest
+
+      - name: Render Kustomize manifests
+        run: kubectl kustomize k8s > /tmp/prism0-k8s.yaml
+
+      - name: Validate default manifests
+        run: kubeconform -strict -summary /tmp/prism0-k8s.yaml
+
+      - name: Validate optional manifests
+        run: |
+          kubeconform -strict -summary k8s/secret.example.yaml
+          kubeconform -strict -summary k8s/hpa.yaml
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production artifacts
+        run: npm run build
