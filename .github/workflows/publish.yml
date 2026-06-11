@@ -1,0 +1,92 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/prism0
+  PACKAGE_NAME: prism0
+
+jobs:
+  docker:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set GHCR package visibility to public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner_type="$(gh api "/users/${{ github.repository_owner }}" --jq .type)"
+          if [[ "${owner_type}" == "Organization" ]]; then
+            package_endpoint="/orgs/${{ github.repository_owner }}/packages/container/${{ env.PACKAGE_NAME }}"
+          else
+            package_endpoint="/user/packages/container/${{ env.PACKAGE_NAME }}"
+          fi
+
+          if gh api -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "${package_endpoint}/visibility" \
+            -f visibility=public >/dev/null 2>&1; then
+            echo "GHCR package visibility set to public."
+          else
+            echo "::warning::Could not update GHCR visibility via API. Set package visibility manually in package settings."
+          fi
+
+      - name: Verify image is publicly pullable
+        run: |
+          image="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          for attempt in {1..6}; do
+            if docker pull "${image}"; then
+              echo "Verified anonymous pull of ${image}"
+              exit 0
+            fi
+            echo "Public pull not ready yet; retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::GHCR image is not publicly pullable" >&2
+          exit 1
