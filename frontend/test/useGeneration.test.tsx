@@ -135,6 +135,76 @@ describe("useGeneration", () => {
     }
   });
 
+  it("preserves context usage when starting a follow-up from a ready run", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "source-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "follow-up-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const sourceRun = eventSources.at(-1);
+    act(() => {
+      sourceRun!.onmessage?.({
+        data: JSON.stringify({
+          type: "usage",
+          metrics: {
+            inputTokens: 100,
+            outputTokens: 40,
+            totalTokens: 140,
+            contextWindowTokens: 1000,
+            contextUsedTokens: 140,
+            contextUsedPercent: 14,
+            outputTokensPerSecond: 20,
+            buckets: [
+              {
+                kind: "generate",
+                label: "LLM generate",
+                inputTokens: 100,
+                outputTokens: 40,
+                totalTokens: 140
+              }
+            ]
+          }
+        })
+      } as MessageEvent);
+      sourceRun!.onmessage?.({
+        data: JSON.stringify({ type: "done", files: { "index.html": "<html/>" } })
+      } as MessageEvent);
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.kind).toBe("ready");
+    });
+
+    await act(async () => {
+      await result.current.followUp("source-1", "add a settings panel");
+    });
+
+    expect(result.current.state.kind).toBe("generating");
+    if (result.current.state.kind === "generating") {
+      expect(result.current.state.usage?.contextUsedPercent).toBe(14);
+      expect(result.current.state.logs).toContain("Ready.");
+      expect(result.current.state.logs).toContain("Requesting follow-up changes…");
+    }
+  });
+
   it("starts follow-up runs for generated app changes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ runId: "follow-up-1" }), {

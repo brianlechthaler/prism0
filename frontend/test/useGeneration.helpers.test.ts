@@ -3,6 +3,7 @@ import {
   applyUsageUpdate,
   appendLogLine,
   appendStreamChunk,
+  beginGeneratingState,
   completeGeneration,
   emptyRunStreams,
   extractValidationErrorFromLogs,
@@ -165,6 +166,44 @@ describe("isYoloRun", () => {
       isYoloRun(["YOLO mode enabled for this follow-up — validation harness will be skipped."])
     ).toBe(true);
     expect(isYoloRun(["All checks passed."])).toBe(false);
+  });
+});
+
+describe("beginGeneratingState", () => {
+  const readyState = {
+    kind: "ready" as const,
+    runId: "r1",
+    logs: ["done"],
+    streams: { thinking: "plan", content: "{" },
+    files: { "index.html": "<html/>" },
+    usage
+  };
+
+  it("starts a fresh generation without prior progress", () => {
+    expect(
+      beginGeneratingState({ kind: "idle" }, { runId: "", logs: ["Starting…"] })
+    ).toEqual({
+      kind: "generating",
+      runId: "",
+      logs: ["Starting…"],
+      streams: emptyRunStreams()
+    });
+  });
+
+  it("preserves context usage and prior progress for follow-up style runs", () => {
+    expect(
+      beginGeneratingState(
+        readyState,
+        { runId: "", logs: ["Requesting follow-up changes…"] },
+        { preserveProgress: true }
+      )
+    ).toEqual({
+      kind: "generating",
+      runId: "",
+      logs: ["done", "Requesting follow-up changes…"],
+      streams: { thinking: "plan", content: "{" },
+      usage
+    });
   });
 });
 
