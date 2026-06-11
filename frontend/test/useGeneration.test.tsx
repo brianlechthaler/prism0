@@ -363,7 +363,13 @@ describe("useGeneration", () => {
     const source = eventSources.at(-1)!;
     act(() => {
       source.onmessage?.({
-        data: JSON.stringify({ type: "error", message: "generation failed" })
+        data: JSON.stringify({
+          type: "error",
+          message: "generation failed",
+          runId: "r2",
+          files: { "index.js": "broken();" },
+          repairable: true
+        })
       } as MessageEvent);
     });
 
@@ -372,6 +378,85 @@ describe("useGeneration", () => {
     });
     if (result.current.state.kind === "error") {
       expect(result.current.state.message).toBe("generation failed");
+      expect(result.current.state.runId).toBe("r2");
+      expect(result.current.state.files?.["index.js"]).toBe("broken();");
+      expect(result.current.state.repairable).toBe(true);
+    }
+  });
+
+  it("falls back to the active run id when server error events omit runId", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ runId: "r2" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    );
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    act(() => {
+      source.onmessage?.({
+        data: JSON.stringify({ type: "error", message: "generation failed" })
+      } as MessageEvent);
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.kind).toBe("error");
+    });
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.runId).toBe("r2");
+    }
+  });
+
+  it("starts validation repair runs for failed validation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "validation-repair-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.repairValidation("source-1", "lint still failing", "model-b");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/validation-fix", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ error: "lint still failing", model: "model-b" })
+    });
+    expect(eventSources.at(-1)?.url).toContain("/api/generate/validation-repair-1/events");
+    expect(result.current.state.kind).toBe("generating");
+    if (result.current.state.kind === "generating") {
+      expect(result.current.state.runId).toBe("validation-repair-1");
+    }
+  });
+
+  it("handles failed validation repair requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("project is not ready", { status: 409 }))
+    );
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.repairValidation("source-1", "lint still failing");
+    });
+
+    expect(result.current.state.kind).toBe("error");
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.message).toBe("project is not ready");
     }
   });
 });

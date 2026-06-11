@@ -11,6 +11,7 @@ import type { GenerationState } from "../src/hooks/useGeneration";
 
 const mocks = vi.hoisted(() => ({
   repair: vi.fn(),
+  repairValidation: vi.fn(),
   start: vi.fn(),
   state: {
     kind: "error",
@@ -19,27 +20,34 @@ const mocks = vi.hoisted(() => ({
   } as GenerationState
 }));
 
-vi.mock("@codesandbox/sandpack-react", () => ({
-  Sandpack: () => null
+vi.mock("../src/ui/EditorPreview", () => ({
+  EditorPreview: () => null
 }));
 
-vi.mock("../src/hooks/useGeneration", () => ({
-  useModelOptions: () => ({
-    enabled: true,
-    defaultModel: "model-a",
-    models: ["model-a", "model-b"],
-    isLoading: false
-  }),
-  useGeneration: () => ({
-    state: mocks.state,
-    start: mocks.start,
-    repair: mocks.repair
-  })
-}));
+vi.mock("../src/hooks/useGeneration", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/hooks/useGeneration")>();
+  return {
+    ...actual,
+    useModelOptions: () => ({
+      enabled: true,
+      defaultModel: "model-a",
+      models: ["model-a", "model-b"],
+      isLoading: false
+    }),
+    useGeneration: () => ({
+      state: mocks.state,
+      start: mocks.start,
+      repair: mocks.repair,
+      repairValidation: mocks.repairValidation,
+      followUp: vi.fn()
+    })
+  };
+});
 
 describe("App error state", () => {
   beforeEach(() => {
     mocks.repair.mockReset();
+    mocks.repairValidation.mockReset();
     mocks.start.mockReset();
     mocks.state = {
       kind: "error",
@@ -120,7 +128,7 @@ describe("App error state", () => {
       }
     });
 
-    expect(screen.queryByText(/generated app crashed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/generated app has an error/i)).not.toBeInTheDocument();
   });
 
   it("shows a repair button when the generated preview crashes", async () => {
@@ -151,7 +159,7 @@ describe("App error state", () => {
       );
     });
 
-    expect(await screen.findByText(/generated app crashed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/generated app has an error/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /fix with llm/i }));
 
     await waitFor(() => {
@@ -161,5 +169,44 @@ describe("App error state", () => {
         "model-a"
       );
     });
+  });
+
+  it("shows a validation repair button when generation fails with repairable files", async () => {
+    mocks.state = {
+      kind: "error",
+      runId: "failed-1",
+      message: "lint still failing",
+      repairable: true,
+      logs: ["[2026-01-01T00:00:00.000Z] Validation error: eslint failed on index.js"],
+      files: {
+        "index.html": "<html><head></head><body><script src=\"index.js\"></script></body></html>",
+        "index.js": "export const broken = true;"
+      }
+    };
+
+    render(<App />);
+    expect(await screen.findByText(/generated code failed validation/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /fix with llm/i }));
+
+    await waitFor(() => {
+      expect(mocks.repairValidation).toHaveBeenCalledWith(
+        "failed-1",
+        "eslint failed on index.js",
+        "model-a"
+      );
+    });
+  });
+
+  it("does not render the editor when a repairable error is missing a run id", () => {
+    mocks.state = {
+      kind: "error",
+      message: "lint still failing",
+      repairable: true,
+      logs: ["failed"],
+      files: { "index.js": "broken();" }
+    };
+
+    render(<App />);
+    expect(screen.getByText(/when generation finishes/i)).toBeInTheDocument();
   });
 });

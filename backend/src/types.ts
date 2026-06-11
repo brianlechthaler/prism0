@@ -36,7 +36,13 @@ export type SseMessage =
   | { type: "log"; line: string }
   | { type: "usage"; metrics: RunUsageMetrics }
   | { type: "done"; files: Record<string, string> }
-  | { type: "error"; message: string };
+  | {
+      type: "error";
+      message: string;
+      runId: string;
+      files?: Record<string, string>;
+      repairable?: boolean;
+    };
 
 export type RunStatus = "pending" | "running" | "done" | "error";
 

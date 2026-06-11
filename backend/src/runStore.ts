@@ -67,7 +67,7 @@ export class RunStore {
     if (run.status === "done") {
       subscriber({ type: "done", files: run.files });
     } else if (run.status === "error") {
-      subscriber({ type: "error", message: run.error || "Unknown error" });
+      subscriber(this.errorMessage(run));
     } else {
       run.subscribers.add(subscriber);
     }
@@ -116,9 +116,19 @@ export class RunStore {
     run.status = "error";
     run.error = message;
     run.updatedAt = this.now();
-    this.broadcast(run, { type: "error", message });
+    this.broadcast(run, this.errorMessage(run));
     run.subscribers.clear();
     this.pruneTerminalRuns();
+  }
+
+  private errorMessage(run: InternalRun): Extract<SseMessage, { type: "error" }> {
+    const repairable = Object.keys(run.files).length > 0;
+    return {
+      type: "error",
+      message: run.error || "Unknown error",
+      runId: run.id,
+      ...(repairable ? { files: { ...run.files }, repairable: true } : {})
+    };
   }
 
   private require(id: string): InternalRun {

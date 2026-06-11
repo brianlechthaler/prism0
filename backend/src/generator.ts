@@ -163,6 +163,7 @@ export async function runGeneration(
   selectedModel?: string
 ): Promise<void> {
   const tracker = new RunUsageTracker(config.contextWindowTokens);
+  let lastKnownFiles: Record<string, string> | undefined;
   try {
     store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 run ${runId} started`);
@@ -269,18 +270,23 @@ export async function runGeneration(
       runId,
       `[${timestamp()}] Parsed project summary: ${project.summary}`
     );
+    lastKnownFiles = project.files;
     store.appendLog(
       runId,
       `[${timestamp()}] Generated files: ${Object.keys(project.files).join(", ")}`
     );
 
     project = await validateProjectWithRetries(config, store, tracker, runId, idea, project, selectedModel);
+    lastKnownFiles = project.files;
 
     store.appendLog(runId, `[${timestamp()}] All checks passed. Publishing files to editor/preview.`);
     store.complete(runId, project.files);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Run failed: ${message}`);
+    if (lastKnownFiles) {
+      store.setFiles(runId, lastKnownFiles);
+    }
     store.fail(runId, message);
   }
 }
@@ -296,6 +302,7 @@ export async function runFollowUp(
 ): Promise<void> {
   const tracker = new RunUsageTracker(config.contextWindowTokens);
   const augmentedIdea = `${idea}\n\nFollow-up request: ${followUpPrompt}`;
+  let lastKnownFiles = project.files;
 
   try {
     store.setStatus(runId, "running");
@@ -358,6 +365,7 @@ export async function runFollowUp(
       selectedModel
     );
     store.appendLog(runId, `[${timestamp()}] Follow-up summary: ${updatedProject.summary}`);
+    lastKnownFiles = updatedProject.files;
 
     updatedProject = await validateProjectWithRetries(
       config,
@@ -374,6 +382,7 @@ export async function runFollowUp(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Follow-up failed: ${message}`);
+    store.setFiles(runId, lastKnownFiles);
     store.fail(runId, message);
   }
 }
@@ -388,6 +397,7 @@ export async function runRuntimeRepair(
   selectedModel?: string
 ): Promise<void> {
   const tracker = new RunUsageTracker(config.contextWindowTokens);
+  let lastKnownFiles = project.files;
   try {
     store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 runtime repair ${runId} started`);
@@ -452,6 +462,7 @@ export async function runRuntimeRepair(
       runId,
       `[${timestamp()}] Runtime repair summary: ${repairedProject.summary}`
     );
+    lastKnownFiles = repairedProject.files;
 
     repairedProject = await validateProjectWithRetries(
       config,
@@ -468,6 +479,107 @@ export async function runRuntimeRepair(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
+    store.setFiles(runId, lastKnownFiles);
+    store.fail(runId, message);
+  }
+}
+
+export async function runValidationRepair(
+  config: AppConfig,
+  store: RunStore,
+  runId: string,
+  idea: string,
+  project: GeneratedProject,
+  validationError: string,
+  selectedModel?: string
+): Promise<void> {
+  const tracker = new RunUsageTracker(config.contextWindowTokens);
+  let lastKnownFiles = project.files;
+  try {
+    store.setStatus(runId, "running");
+    store.appendLog(runId, `[${timestamp()}] prism0 validation repair ${runId} started`);
+    store.appendLog(runId, `[${timestamp()}] Repairing app idea: "${idea}"`);
+    store.appendLog(runId, `[${timestamp()}] Validation error received: ${validationError}`);
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Requesting validation fixes from model ${selectedModel || config.openaiModel}…`
+    );
+
+    let fixStreamChars = 0;
+    const raw = await fixProjectFromValidationErrors(
+      config,
+      idea,
+      project,
+      validationError,
+      trackLlmUsage(
+        store,
+        tracker,
+        runId,
+        "validation_fix",
+        withModelAttemptLogs(store, runId, {
+          onStreamOpen: () => {
+            store.appendLog(runId, `[${timestamp()}] Model validation repair stream connected…`);
+          },
+          onContent: (chunk) => {
+            fixStreamChars += chunk.length;
+            if (fixStreamChars % 500 < chunk.length) {
+              store.appendLog(
+                runId,
+                `[${timestamp()}] Model validation fix stream… ${fixStreamChars} chars received`
+              );
+            }
+          }
+        })
+      ),
+      { selectedModel }
+    );
+
+    store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
+    let repairedProject = await parseProjectWithRetries(
+      config,
+      store,
+      tracker,
+      runId,
+      idea,
+      raw,
+      {
+        onContent: (chunk) => {
+          fixStreamChars += chunk.length;
+          if (fixStreamChars % 500 < chunk.length) {
+            store.appendLog(
+              runId,
+              `[${timestamp()}] Model JSON fix stream… ${fixStreamChars} chars received`
+            );
+          }
+        }
+      },
+      selectedModel
+    );
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Validation repair summary: ${repairedProject.summary}`
+    );
+    lastKnownFiles = repairedProject.files;
+
+    repairedProject = await validateProjectWithRetries(
+      config,
+      store,
+      tracker,
+      runId,
+      idea,
+      repairedProject,
+      selectedModel
+    );
+
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Validation repair checks passed. Publishing fixed files.`
+    );
+    store.complete(runId, repairedProject.files);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Validation repair failed: ${message}`);
+    store.setFiles(runId, lastKnownFiles);
     store.fail(runId, message);
   }
 }

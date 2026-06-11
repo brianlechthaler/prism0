@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as validateModule from "../src/validateProject.js";
-import { runFollowUp, runGeneration, runRuntimeRepair } from "../src/generator.js";
+import { runFollowUp, runGeneration, runRuntimeRepair, runValidationRepair } from "../src/generator.js";
 import { RunStore } from "../src/runStore.js";
 
 const config = {
@@ -435,6 +435,7 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("error");
     expect(final?.error).toContain("lint still failing");
+    expect(final?.files["index.js"]).toContain("export const x = 1");
     expect(llm.fixProjectFromValidationErrors).toHaveBeenCalledTimes(4);
   });
 
@@ -625,6 +626,7 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("error");
     expect(final?.error).toBe("plain follow-up failure");
+    expect(final?.files["index.js"]).toContain("export const x = 1");
     expect(final?.logs.some((l) => l.includes("Follow-up failed"))).toBe(true);
   });
 
@@ -732,6 +734,7 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("error");
     expect(final?.error).toBe("repair failed");
+    expect(final?.files["index.js"]).toContain("throw new Error('boom')");
     expect(final?.logs.some((l) => l.includes("Runtime repair failed"))).toBe(true);
   });
 
@@ -753,5 +756,148 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("error");
     expect(final?.error).toBe("plain repair failure");
+  });
+
+  it("repairs validation errors and publishes fixed files", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onStreamOpen?.();
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify({
+          ...validPayload,
+          files: { ...validPayload.files, "index.js": "export const fixed = true;" }
+        });
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runValidationRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "export const broken = true;" } },
+      "lint still failing"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(final?.files["index.js"]).toContain("fixed");
+    expect(final?.logs.some((l) => l.includes("validation repair"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Validation repair checks passed"))).toBe(true);
+  });
+
+  it("retries JSON parsing when validation repair returns invalid JSON", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runValidationRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "export const broken = true;" } },
+      "lint still failing"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
+    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+  });
+
+  it("does not log validation repair milestones before thresholds are reached", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return "{ bad json }";
+      }
+    );
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runValidationRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "export const broken = true;" } },
+      "lint still failing"
+    );
+
+    const logs = store.get(run.id)?.logs.join("\n") ?? "";
+    expect(logs).not.toContain("Model validation fix stream");
+    expect(logs).not.toContain("Model JSON fix stream");
+  });
+
+  it("marks validation repair failed when the model throws", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockRejectedValue(new Error("validation repair failed"));
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runValidationRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "export const broken = true;" } },
+      "lint still failing"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("validation repair failed");
+    expect(final?.files["index.js"]).toContain("export const broken = true");
+    expect(final?.logs.some((l) => l.includes("Validation repair failed"))).toBe(true);
+  });
+
+  it("handles non-error validation repair failures", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockRejectedValue("plain validation repair failure");
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runValidationRepair(
+      config,
+      store,
+      run.id,
+      run.idea,
+      { summary: "broken", files: { "index.js": "export const broken = true;" } },
+      "lint still failing"
+    );
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("error");
+    expect(final?.error).toBe("plain validation repair failure");
   });
 });

@@ -37,13 +37,27 @@ export type GenerationState =
       files: Record<string, string>;
       usage?: RunUsageMetrics;
     }
-  | { kind: "error"; message: string; logs: string[]; usage?: RunUsageMetrics };
+  | {
+      kind: "error";
+      message: string;
+      logs: string[];
+      runId?: string;
+      files?: Record<string, string>;
+      repairable?: boolean;
+      usage?: RunUsageMetrics;
+    };
 
 type SsePayload =
   | { type: "log"; line: string }
   | { type: "usage"; metrics: RunUsageMetrics }
   | { type: "done"; files: Record<string, string> }
-  | { type: "error"; message: string };
+  | {
+      type: "error";
+      message: string;
+      runId?: string;
+      files?: Record<string, string>;
+      repairable?: boolean;
+    };
 
 export type ModelOptionsState = {
   enabled: boolean;
@@ -82,11 +96,29 @@ export function completeGeneration(
 
 export function failGeneration(
   state: GenerationState,
-  message: string
+  message: string,
+  details?: { runId?: string; files?: Record<string, string>; repairable?: boolean }
 ): Extract<GenerationState, { kind: "error" }> {
   const logs = "logs" in state ? state.logs : [];
   const usage = "usage" in state ? state.usage : undefined;
-  return { kind: "error", message, logs, usage };
+  const runId = details?.runId ?? ("runId" in state ? state.runId : undefined);
+  return {
+    kind: "error",
+    message,
+    logs,
+    usage,
+    ...(runId ? { runId } : {}),
+    ...(details?.files ? { files: details.files } : {}),
+    ...(details?.repairable ? { repairable: true } : {})
+  };
+}
+
+export function extractValidationErrorFromLogs(logs: string[], fallbackMessage: string): string {
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    const match = logs[index].match(/Validation error: (.+)/);
+    if (match?.[1]) return match[1];
+  }
+  return fallbackMessage;
 }
 
 export function applyUsageUpdate(
@@ -169,7 +201,13 @@ export function useGeneration() {
         setState((s) => completeGeneration(s, runId, msg.files));
         es.close();
       } else {
-        setState((s) => failGeneration(s, msg.message));
+        setState((s) =>
+          failGeneration(s, msg.message, {
+            runId: msg.runId ?? runId,
+            files: msg.files,
+            repairable: msg.repairable
+          })
+        );
         es.close();
       }
     };
@@ -274,5 +312,37 @@ export function useGeneration() {
     [connectToRun]
   );
 
-  return { state, start, repair, followUp };
+  const repairValidation = useCallback(
+    async (runId: string, error: string, model?: string) => {
+      eventSourceRef.current?.close();
+      setState({
+        kind: "generating",
+        runId: "",
+        logs: ["Requesting LLM repair for validation errors…"]
+      });
+
+      const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/validation-fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: requestBodyWithModel({ error }, model)
+      });
+
+      if (!res.ok) {
+        setState({ kind: "error", message: await res.text(), logs: [] });
+        return;
+      }
+
+      const json = (await res.json()) as { runId: string };
+      const repairRunId = json.runId;
+      setState({
+        kind: "generating",
+        runId: repairRunId,
+        logs: ["Validation repair run created.", "Connecting to live progress…"]
+      });
+      connectToRun(repairRunId);
+    },
+    [connectToRun]
+  );
+
+  return { state, start, repair, repairValidation, followUp };
 }

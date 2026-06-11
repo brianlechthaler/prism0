@@ -1,12 +1,16 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { useGeneration, useModelOptions } from "../hooks/useGeneration";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  extractValidationErrorFromLogs,
+  useGeneration,
+  useModelOptions
+} from "../hooks/useGeneration";
 import { UsageMetricsPanel } from "./UsageMetrics";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
 export const PREVIEW_ERROR_MESSAGE_TYPE = "prism0-preview-error";
-const LazySandpack = React.lazy(async () => {
-  const { Sandpack } = await import("@codesandbox/sandpack-react");
-  return { default: Sandpack };
+const LazyEditorPreview = React.lazy(async () => {
+  const { EditorPreview } = await import("./EditorPreview");
+  return { default: EditorPreview };
 });
 
 type PreviewRuntimeError = {
@@ -99,7 +103,8 @@ export function App() {
   const [readySubmissionMode, setReadySubmissionMode] =
     React.useState<ReadySubmissionMode>("follow-up");
   const [previewError, setPreviewError] = React.useState<PreviewRuntimeError | null>(null);
-  const { state, start, repair, followUp } = useGeneration();
+  const [bundlerError, setBundlerError] = React.useState<string | undefined>();
+  const { state, start, repair, repairValidation, followUp } = useGeneration();
   const modelOptions = useModelOptions();
   const [selectedModel, setSelectedModel] = React.useState("");
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -126,6 +131,7 @@ export function App() {
 
   useEffect(() => {
     setPreviewError(null);
+    setBundlerError(undefined);
   }, [activeRunId]);
 
   useEffect(() => {
@@ -153,16 +159,31 @@ export function App() {
   const downloadHref =
     state.kind === "ready" ? `/api/project/${encodeURIComponent(state.runId)}/download` : undefined;
 
-  const sandpackFiles = useMemo(() => {
-    if (state.kind !== "ready") return undefined;
+  const editorFiles = useMemo(() => {
+    if (state.kind !== "ready" && !(state.kind === "error" && state.files)) {
+      return undefined;
+    }
+
+    const runId = state.runId;
+    const sourceFiles = state.files;
+    if (!runId || !sourceFiles) return undefined;
+
     const files: Record<string, string> = {};
-    for (const [k, v] of Object.entries(withPreviewErrorReporter(state.files, state.runId))) {
-      files[`/${k}`] = v;
+    for (const [key, value] of Object.entries(withPreviewErrorReporter(sourceFiles, runId))) {
+      files[`/${key}`] = value;
     }
     return files;
   }, [state]);
 
   const previewErrorText = previewError ? formatPreviewRuntimeError(previewError) : undefined;
+  const repairErrorText = previewErrorText ?? bundlerError;
+  const validationRepairError =
+    state.kind === "error" && state.repairable && state.runId && state.files
+      ? extractValidationErrorFromLogs(state.logs, state.message)
+      : undefined;
+  const handleBundlerError = useCallback((message: string) => {
+    setBundlerError(message);
+  }, []);
   const promptLabel =
     canFollowUp && readySubmissionMode === "follow-up"
       ? "What should we add or change?"
@@ -308,32 +329,36 @@ export function App() {
               {"logs" in state ? state.logs.join("\n") : "Enter an idea and hit Submit."}
             </div>
             {state.kind === "error" ? <div className="error">Error: {state.message}</div> : null}
+            {validationRepairError && state.kind === "error" && state.runId ? (
+              <div className="runtimeError" role="alert">
+                <div className="runtimeErrorTitle">Generated code failed validation</div>
+                <pre>{validationRepairError}</pre>
+                <button
+                  className="btn runtimeFixButton"
+                  onClick={() =>
+                    void repairValidation(state.runId!, validationRepairError, activeModel)
+                  }
+                >
+                  Fix with LLM
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="panel panelEditor">
             <div className="panelTitle">Editor + Preview</div>
-            {sandpackFiles ? (
+            {editorFiles ? (
               <>
                 <React.Suspense fallback={<div className="placeholder">Loading editor…</div>}>
-                  <LazySandpack
-                    template="vanilla"
-                    theme="dark"
-                    files={sandpackFiles}
-                    options={{
-                      showLineNumbers: true,
-                      wrapContent: true,
-                      editorHeight: 360,
-                      layout: "preview"
-                    }}
-                  />
+                  <LazyEditorPreview files={editorFiles} onBundlerError={handleBundlerError} />
                 </React.Suspense>
-                {previewErrorText && state.kind === "ready" ? (
+                {repairErrorText && state.kind === "ready" ? (
                   <div className="runtimeError" role="alert">
-                    <div className="runtimeErrorTitle">Generated app crashed</div>
-                    <pre>{previewErrorText}</pre>
+                    <div className="runtimeErrorTitle">Generated app has an error</div>
+                    <pre>{repairErrorText}</pre>
                     <button
                       className="btn runtimeFixButton"
-                      onClick={() => void repair(state.runId, previewErrorText, activeModel)}
+                      onClick={() => void repair(state.runId, repairErrorText, activeModel)}
                     >
                       Fix with LLM
                     </button>

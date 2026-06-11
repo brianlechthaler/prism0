@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import express from "express";
-import { createGenerationGuard, registerRoutes, routeParam } from "../src/routes.js";
+import { createGenerationGuard, isRepairableSourceRun, registerRoutes, routeParam } from "../src/routes.js";
 import { RunStore } from "../src/runStore.js";
 
 const config = {
@@ -459,6 +459,131 @@ describe("registerRoutes", () => {
       expect(res.status).toBe(409);
     });
   });
+
+  it("starts validation repair asynchronously", async () => {
+    const repairSpy = vi
+      .spyOn(await import("../src/generator.js"), "runValidationRepair")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "broken();" });
+    store.fail(sourceRun.id, "lint still failing");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: "lint still failing" })
+        }
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(json.runId).toBeTruthy();
+      expect(json.runId).not.toBe(sourceRun.id);
+      expect(repairSpy).toHaveBeenCalledWith(
+        config,
+        store,
+        json.runId,
+        "make app",
+        expect.objectContaining({
+          files: expect.objectContaining({ "index.js": "broken();" })
+        }),
+        "lint still failing",
+        undefined
+      );
+    });
+  });
+
+  it("returns 404 for missing validation repair source runs", async () => {
+    const { app } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/validation-fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "lint still failing" })
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  it("rejects invalid validation repair payloads", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
+    store.fail(sourceRun.id, "lint still failing");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: "" })
+        }
+      );
+      expect(res.status).toBe(400);
+    });
+  });
+
+  it("rejects unconfigured validation repair models", async () => {
+    const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
+    const sourceRun = store.create("make app");
+    store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
+    store.fail(sourceRun.id, "lint still failing");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: "lint still failing", model: "missing" })
+        }
+      );
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("not configured");
+    });
+  });
+
+  it("rejects validation repair when the project is not ready", async () => {
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ error: "lint still failing" })
+        }
+      );
+      expect(res.status).toBe(409);
+    });
+  });
+
+  it("allows runtime repair from failed runs with files", async () => {
+    const repairSpy = vi
+      .spyOn(await import("../src/generator.js"), "runRuntimeRepair")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+    store.fail(sourceRun.id, "runtime repair failed");
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: "Error: boom" })
+      });
+      expect(res.status).toBe(200);
+      expect(repairSpy).toHaveBeenCalled();
+    });
+  });
 });
 
 describe("createGenerationGuard", () => {
@@ -506,5 +631,50 @@ describe("routeParam", () => {
     expect(routeParam("run-1")).toBe("run-1");
     expect(routeParam(["run-1", "run-2"])).toBe("");
     expect(routeParam(undefined)).toBe("");
+  });
+});
+
+describe("isRepairableSourceRun", () => {
+  it("accepts done and error runs with files", () => {
+    expect(
+      isRepairableSourceRun({
+        id: "r1",
+        idea: "make app",
+        status: "done",
+        logs: [],
+        files: { "index.js": "x" }
+      })
+    ).toBe(true);
+    expect(
+      isRepairableSourceRun({
+        id: "r1",
+        idea: "make app",
+        status: "error",
+        logs: [],
+        files: { "index.js": "x" },
+        error: "boom"
+      })
+    ).toBe(true);
+  });
+
+  it("rejects runs without files or in non-terminal states", () => {
+    expect(
+      isRepairableSourceRun({
+        id: "r1",
+        idea: "make app",
+        status: "done",
+        logs: [],
+        files: {}
+      })
+    ).toBe(false);
+    expect(
+      isRepairableSourceRun({
+        id: "r1",
+        idea: "make app",
+        status: "running",
+        logs: [],
+        files: { "index.js": "x" }
+      })
+    ).toBe(false);
   });
 });
