@@ -18,7 +18,8 @@ readonly OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 readonly OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
 readonly REQUEST_TIMEOUT_MS="${REQUEST_TIMEOUT_MS:-600000}"
 readonly OPENAI_CONTEXT_WINDOW="${OPENAI_CONTEXT_WINDOW:-32768}"
-readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
 
 usage() {
   cat <<'EOF'
