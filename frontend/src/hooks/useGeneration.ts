@@ -191,6 +191,28 @@ export function applyUsageUpdate(
   return state;
 }
 
+export function beginGeneratingState(
+  previous: GenerationState,
+  initial: {
+    runId: string;
+    logs: string[];
+  },
+  options: { preserveProgress?: boolean } = {}
+): Extract<GenerationState, { kind: "generating" }> {
+  const preserve = options.preserveProgress ?? false;
+  const priorLogs = "logs" in previous ? previous.logs : [];
+  const priorStreams = "streams" in previous ? previous.streams : emptyRunStreams();
+  const priorUsage = "usage" in previous ? previous.usage : undefined;
+
+  return {
+    kind: "generating",
+    runId: initial.runId,
+    logs: preserve ? [...priorLogs, ...initial.logs] : initial.logs,
+    streams: preserve ? priorStreams : emptyRunStreams(),
+    ...(preserve && priorUsage ? { usage: priorUsage } : {})
+  };
+}
+
 export function useModelOptions() {
   const [modelOptions, setModelOptions] = useState<ModelOptionsState>({
     enabled: false,
@@ -288,7 +310,7 @@ export function useGeneration() {
   const start = useCallback(
     async (idea: string, model?: string, options?: GenerationRequestOptions) => {
       eventSourceRef.current?.close();
-      setState({ kind: "generating", runId: "", logs: ["Starting…"], streams: emptyRunStreams() });
+      setState(beginGeneratingState({ kind: "idle" }, { runId: "", logs: ["Starting…"] }));
 
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -297,18 +319,17 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
+        const message = await res.text();
+        setState((current) => failGeneration(current, message));
         return;
       }
 
       const json = (await res.json()) as { runId: string };
       const runId = json.runId;
-      setState({
-        kind: "generating",
+      setState(beginGeneratingState({ kind: "idle" }, {
         runId,
-        logs: ["Run created.", "Connecting to live progress…"],
-        streams: emptyRunStreams()
-      });
+        logs: ["Run created.", "Connecting to live progress…"]
+      }));
       connectToRun(runId);
     },
     [connectToRun]
@@ -317,12 +338,13 @@ export function useGeneration() {
   const repair = useCallback(
     async (runId: string, error: string, model?: string) => {
       eventSourceRef.current?.close();
-      setState({
-        kind: "generating",
-        runId: "",
-        logs: ["Requesting LLM repair for generated app crash…"],
-        streams: emptyRunStreams()
-      });
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId: "", logs: ["Requesting LLM repair for generated app crash…"] },
+          { preserveProgress: true }
+        )
+      );
 
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
         method: "POST",
@@ -331,18 +353,20 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
+        const message = await res.text();
+        setState((current) => failGeneration(current, message, { runId }));
         return;
       }
 
       const json = (await res.json()) as { runId: string };
       const repairRunId = json.runId;
-      setState({
-        kind: "generating",
-        runId: repairRunId,
-        logs: ["Repair run created.", "Connecting to live progress…"],
-        streams: emptyRunStreams()
-      });
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId: repairRunId, logs: ["Repair run created.", "Connecting to live progress…"] },
+          { preserveProgress: true }
+        )
+      );
       connectToRun(repairRunId);
     },
     [connectToRun]
@@ -351,12 +375,13 @@ export function useGeneration() {
   const followUp = useCallback(
     async (runId: string, prompt: string, model?: string, options?: GenerationRequestOptions) => {
       eventSourceRef.current?.close();
-      setState({
-        kind: "generating",
-        runId: "",
-        logs: ["Requesting follow-up changes…"],
-        streams: emptyRunStreams()
-      });
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId: "", logs: ["Requesting follow-up changes…"] },
+          { preserveProgress: true }
+        )
+      );
 
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
         method: "POST",
@@ -365,18 +390,20 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
+        const message = await res.text();
+        setState((current) => failGeneration(current, message, { runId }));
         return;
       }
 
       const json = (await res.json()) as { runId: string };
       const followUpRunId = json.runId;
-      setState({
-        kind: "generating",
-        runId: followUpRunId,
-        logs: ["Follow-up run created.", "Connecting to live progress…"],
-        streams: emptyRunStreams()
-      });
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId: followUpRunId, logs: ["Follow-up run created.", "Connecting to live progress…"] },
+          { preserveProgress: true }
+        )
+      );
       connectToRun(followUpRunId);
     },
     [connectToRun]
@@ -385,12 +412,13 @@ export function useGeneration() {
   const repairValidation = useCallback(
     async (runId: string, error: string, model?: string) => {
       eventSourceRef.current?.close();
-      setState({
-        kind: "generating",
-        runId: "",
-        logs: ["Requesting LLM repair for validation errors…"],
-        streams: emptyRunStreams()
-      });
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId: "", logs: ["Requesting LLM repair for validation errors…"] },
+          { preserveProgress: true }
+        )
+      );
 
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/validation-fix`, {
         method: "POST",
@@ -399,18 +427,20 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
+        const message = await res.text();
+        setState((current) => failGeneration(current, message, { runId }));
         return;
       }
 
       const json = (await res.json()) as { runId: string };
       const repairRunId = json.runId;
-      setState({
-        kind: "generating",
-        runId: repairRunId,
-        logs: ["Validation repair run created.", "Connecting to live progress…"],
-        streams: emptyRunStreams()
-      });
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId: repairRunId, logs: ["Validation repair run created.", "Connecting to live progress…"] },
+          { preserveProgress: true }
+        )
+      );
       connectToRun(repairRunId);
     },
     [connectToRun]
