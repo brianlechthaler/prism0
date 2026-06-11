@@ -52,6 +52,7 @@ export type GenerationRun = {
   status: RunStatus;
   logs: string[];
   files: Record<string, string>;
+  summary?: string;
   usage?: RunUsageMetrics;
   error?: string;
 };

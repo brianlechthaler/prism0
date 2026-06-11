@@ -65,6 +65,7 @@ describe("runGeneration", () => {
 
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
+    expect(final?.summary).toBe("done");
     expect(final?.files["index.html"]).toContain("<html>");
     expect(final?.logs.some((l) => l.includes("Model stream connected"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("Model reasoning stream"))).toBe(true);
@@ -512,6 +513,7 @@ describe("runGeneration", () => {
 
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
+    expect(final?.summary).toBe("updated counter");
     expect(final?.files["index.js"]).toContain("reset");
     expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["follow_up"]);
     expect(final?.logs.some((l) => l.includes("follow-up run"))).toBe(true);
