@@ -1,7 +1,11 @@
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { App } from "../src/ui/App";
+
+const mocks = vi.hoisted(() => ({
+  start: vi.fn()
+}));
 
 vi.mock("../src/hooks/useGeneration", () => ({
   emptyRunStreams: () => ({ thinking: "", content: "" }),
@@ -39,17 +43,28 @@ vi.mock("../src/hooks/useGeneration", () => ({
         ]
       }
     },
-    start: vi.fn(),
+    start: mocks.start,
     repair: vi.fn()
   })
 }));
 
 describe("App generating state", () => {
+  beforeEach(() => {
+    mocks.start.mockClear();
+  });
+
   it("disables submit and shows progress label", () => {
     render(<App />);
     expect(screen.getByRole("button", { name: /generating/i })).toBeDisabled();
     expect(screen.getByText("working")).toBeInTheDocument();
     expect(screen.getByText("20.0 tok/s")).toBeInTheDocument();
     expect(screen.getByText(/140 \/ 1,000 context tokens \(14.0%\)/i)).toBeInTheDocument();
+  });
+
+  it("does not submit when shift+enter is pressed while generating", () => {
+    render(<App />);
+    const ideaField = screen.getByLabelText(/what should we build/i);
+    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 });

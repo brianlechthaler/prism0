@@ -202,6 +202,13 @@ export function App() {
     void start(trimmedIdea, activeModel, generationOptions);
   };
 
+  const handleIdeaKeyDown = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || !event.shiftKey) return;
+    event.preventDefault();
+    if (isGenerating || !trimmedIdea) return;
+    submitPrompt();
+  };
+
   return (
     <div className="page">
       <div className="bg" aria-hidden="true" />
@@ -231,6 +238,7 @@ export function App() {
                 className="input inputMultiline"
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
+                onKeyDown={handleIdeaKeyDown}
                 placeholder={
                   canFollowUp && readySubmissionMode === "follow-up"
                     ? 'e.g. "add keyboard controls and a score history"'
@@ -245,6 +253,7 @@ export function App() {
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
                 onClick={() => setIsIdeaMultiline(true)}
+                onKeyDown={handleIdeaKeyDown}
                 placeholder={
                   canFollowUp && readySubmissionMode === "follow-up"
                     ? 'e.g. "add keyboard controls and a score history"'

@@ -188,6 +188,40 @@ describe("App", () => {
     expect(mocks.start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a", undefined);
   });
 
+  it("submits the prompt when shift+enter is pressed in the idea field", () => {
+    render(<App />);
+    const ideaField = screen.getByLabelText(/what should we build/i);
+    fireEvent.change(ideaField, { target: { value: "make pong" } });
+    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
+    expect(mocks.start).toHaveBeenCalledWith("make pong", "model-a", undefined);
+  });
+
+  it("submits multiline prompts when shift+enter is pressed in the paragraph field", () => {
+    render(<App />);
+    fireEvent.click(screen.getByLabelText(/what should we build/i));
+    const ideaField = screen.getByLabelText(/what should we build/i);
+    fireEvent.change(ideaField, { target: { value: "make pong\nwith neon particles" } });
+    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
+    expect(mocks.start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a", undefined);
+  });
+
+  it("does not submit when shift+enter is pressed with an empty prompt", () => {
+    render(<App />);
+    const ideaField = screen.getByLabelText(/what should we build/i);
+    fireEvent.change(ideaField, { target: { value: "   " } });
+    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("does not submit when enter is pressed without shift in the paragraph field", () => {
+    render(<App />);
+    fireEvent.click(screen.getByLabelText(/what should we build/i));
+    const ideaField = screen.getByLabelText(/what should we build/i);
+    fireEvent.change(ideaField, { target: { value: "make pong" } });
+    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: false });
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
   it("shows YOLO mode controls when enabled and submits the flag", () => {
     mocks.modelOptions = {
       enabled: false,

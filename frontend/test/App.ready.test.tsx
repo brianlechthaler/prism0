@@ -103,4 +103,14 @@ describe("App ready state", () => {
     expect(followUp).toHaveBeenCalledWith("abc", "add keyboard shortcuts", "model-a", undefined);
     expect(start).not.toHaveBeenCalled();
   });
+
+  it("submits follow-up prompts when shift+enter is pressed", async () => {
+    render(<App />);
+    const prompt = screen.getByLabelText(/what should we add or change/i);
+    fireEvent.change(prompt, { target: { value: "add a settings panel" } });
+    fireEvent.keyDown(prompt, { key: "Enter", shiftKey: true });
+
+    expect(followUp).toHaveBeenCalledWith("abc", "add a settings panel", "model-a", undefined);
+    expect(start).not.toHaveBeenCalled();
+  });
 });
