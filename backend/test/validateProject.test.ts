@@ -122,6 +122,21 @@ describe("validateGeneratedProject", () => {
     ).rejects.toThrow(/unsafe/);
     expect(deps.fs.writeFile).not.toHaveBeenCalled();
   });
+
+  it("runs all validation commands and aggregates failures", async () => {
+    const deps = createDeps({
+      copyConfigs: vi.fn().mockResolvedValue(undefined),
+      execute: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Command failed (eslint), exit 1:\nunused var"))
+        .mockRejectedValueOnce("assertion failed")
+    });
+
+    await expect(validateGeneratedProject("run-1", files, () => {}, deps)).rejects.toThrow(
+      /ESLint failed:[\s\S]*Vitest failed:[\s\S]*assertion failed/
+    );
+    expect(deps.execute).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("resolveValidationOrchestration", () => {
@@ -179,6 +194,46 @@ describe("copyHarnessConfigs", () => {
       "/harness/runs/r/node_modules",
       "dir"
     );
+  });
+
+  it("retries harness dependency install before failing", async () => {
+    const deps = createDeps({
+      fs: {
+        rm: vi.fn().mockResolvedValue(undefined),
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        writeFile: vi.fn().mockResolvedValue(undefined),
+        copyFile: vi.fn().mockResolvedValue(undefined),
+        access: vi.fn().mockRejectedValue(new Error("missing")),
+        symlink: vi.fn().mockResolvedValue(undefined)
+      },
+      execute: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("network blip"))
+        .mockResolvedValueOnce("installed")
+    });
+    const logs: string[] = [];
+
+    await copyHarnessConfigs("/harness/runs/r", (line) => logs.push(line), deps);
+
+    expect(deps.execute).toHaveBeenCalledTimes(2);
+    expect(logs.some((l) => l.includes("retrying"))).toBe(true);
+  });
+
+  it("fails after exhausting harness dependency install retries", async () => {
+    const deps = createDeps({
+      fs: {
+        rm: vi.fn().mockResolvedValue(undefined),
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        writeFile: vi.fn().mockResolvedValue(undefined),
+        copyFile: vi.fn().mockResolvedValue(undefined),
+        access: vi.fn().mockRejectedValue(new Error("missing")),
+        symlink: vi.fn().mockResolvedValue(undefined)
+      },
+      execute: vi.fn().mockRejectedValue("install failed")
+    });
+
+    await expect(copyHarnessConfigs("/harness/runs/r", () => {}, deps)).rejects.toBe("install failed");
+    expect(deps.execute).toHaveBeenCalledTimes(3);
   });
 });
 

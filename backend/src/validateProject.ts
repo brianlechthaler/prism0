@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const HARNESS_ROOT = path.resolve(__dirname, "../validation-harness");
+export const MAX_HARNESS_INSTALL_ATTEMPTS = 3;
 
 export type ValidationResult = {
   lintOutput: string;
@@ -67,22 +68,38 @@ export async function validateGeneratedProject(
   await copyConfigs(runDir, onLog, deps);
 
   onLog("Running ESLint on generated sources…");
-  const lintOutput = await execute(
-    process.execPath,
-    [path.join(runDir, "node_modules/eslint/bin/eslint.js"), "."],
-    runDir,
-    (line) => onLog(`[eslint] ${line}`),
-    deps.spawn
-  );
+  let lintOutput = "";
+  let testOutput = "";
+  const failures: string[] = [];
+
+  try {
+    lintOutput = await execute(
+      process.execPath,
+      [path.join(runDir, "node_modules/eslint/bin/eslint.js"), "."],
+      runDir,
+      (line) => onLog(`[eslint] ${line}`),
+      deps.spawn
+    );
+  } catch (error) {
+    failures.push(formatCommandFailure("ESLint", error));
+  }
 
   onLog("Running Vitest test suite for generated app…");
-  const testOutput = await execute(
-    process.execPath,
-    [path.join(runDir, "node_modules/vitest/vitest.mjs"), "run"],
-    runDir,
-    (line) => onLog(`[vitest] ${line}`),
-    deps.spawn
-  );
+  try {
+    testOutput = await execute(
+      process.execPath,
+      [path.join(runDir, "node_modules/vitest/vitest.mjs"), "run"],
+      runDir,
+      (line) => onLog(`[vitest] ${line}`),
+      deps.spawn
+    );
+  } catch (error) {
+    failures.push(formatCommandFailure("Vitest", error));
+  }
+
+  if (failures.length > 0) {
+    throw new Error(failures.join("\n\n"));
+  }
 
   onLog("Validation finished successfully.");
   return { lintOutput, testOutput };
@@ -108,13 +125,27 @@ export async function copyHarnessConfigs(
   } catch {
     onLog("Harness node_modules missing; installing tooling dependencies…");
     const execute = resolveExecuteCommand(deps);
-    await execute(
-      "npm",
-      ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-      deps.harnessRoot,
-      onLog,
-      deps.spawn
-    );
+    let lastInstallError: unknown;
+    for (let attempt = 1; attempt <= MAX_HARNESS_INSTALL_ATTEMPTS; attempt++) {
+      try {
+        await execute(
+          "npm",
+          ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+          deps.harnessRoot,
+          onLog,
+          deps.spawn
+        );
+        break;
+      } catch (error) {
+        lastInstallError = error;
+        if (attempt >= MAX_HARNESS_INSTALL_ATTEMPTS) {
+          throw lastInstallError;
+        }
+        onLog(
+          `Harness dependency install failed (attempt ${attempt}/${MAX_HARNESS_INSTALL_ATTEMPTS}); retrying…`
+        );
+      }
+    }
   }
 
   await deps.fs.symlink(modulesPath, targetModules, "dir");
@@ -164,6 +195,11 @@ export function runCommand(
       reject(new Error(`Command failed (${command} ${args.join(" ")}), exit ${code}:\n${combined}`));
     });
   });
+}
+
+function formatCommandFailure(label: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${label} failed:\n${message}`;
 }
 
 export function createValidationEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
