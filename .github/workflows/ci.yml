@@ -178,6 +178,9 @@ jobs:
   kubernetes:
     name: Kubernetes manifests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
 
     steps:
       - name: Checkout
@@ -205,9 +208,19 @@ jobs:
           kubeconform -strict -summary k8s/secret.example.yaml
           kubeconform -strict -summary k8s/hpa.yaml
 
+      - name: Upload rendered Kubernetes manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubernetes-manifests
+          path: /tmp/prism0-k8s.yaml
+          if-no-files-found: error
+
   build:
     name: Production build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
 
     steps:
       - name: Checkout
@@ -224,3 +237,12 @@ jobs:
 
       - name: Build production artifacts
         run: npm run build
+
+      - name: Upload production build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-build
+          path: |
+            backend/dist
+            frontend/dist
+          if-no-files-found: error
