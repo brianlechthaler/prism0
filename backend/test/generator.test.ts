@@ -68,16 +68,16 @@ describe("runGeneration", () => {
     expect(final?.summary).toBe("done");
     expect(final?.files["index.html"]).toContain("<html>");
     expect(final?.logs.some((l) => l.includes("Model stream connected"))).toBe(true);
-    expect(final?.logs.some((l) => l.includes("Model reasoning stream"))).toBe(true);
-    expect(final?.logs.some((l) => l.includes("Model content stream"))).toBe(true);
-    expect(final?.logs.some((l) => l.includes("validated step"))).toBe(true);
+    expect(final?.streams.thinking).toBe("r".repeat(401));
+    expect(final?.streams.content).toContain("c".repeat(501));
+    expect(final?.logs.some((l) => l.includes("[validation] validated step"))).toBe(true);
     expect(final?.logs.some((l) => l.includes("All checks passed"))).toBe(true);
     expect(final?.usage?.inputTokens).toBe(100);
     expect(final?.usage?.outputTokens).toBe(30);
     expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["thinking", "generate"]);
   });
 
-  it("does not log stream milestones before thresholds are reached", async () => {
+  it("streams LLM thinking and content chunks to the run store", async () => {
     vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
       async (_config, _idea, handlers) => {
         handlers.onReasoning?.("r");
@@ -94,9 +94,10 @@ describe("runGeneration", () => {
     const run = store.create("make app");
     await runGeneration(config, store, run.id, run.idea);
 
-    const logs = store.get(run.id)?.logs.join("\n") ?? "";
-    expect(logs).not.toContain("Model reasoning stream");
-    expect(logs).not.toContain("Model content stream");
+    const final = store.get(run.id);
+    expect(final?.streams.thinking).toBe("r");
+    expect(final?.streams.content).toContain("c");
+    expect(final?.streams.content).toContain("=== index.html ===");
   });
 
   it("logs model fallback attempts", async () => {
@@ -229,10 +230,32 @@ describe("runGeneration", () => {
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
     expect(final?.logs.some((l) => l.includes("JSON parse attempt 1/"))).toBe(true);
-    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+    expect(final?.streams.content).toContain("x".repeat(500));
   });
 
-  it("does not log JSON fix milestones before thresholds are reached", async () => {
+  it("handles stream open callbacks without open messages during JSON fixes", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue("{ bad json }");
+    vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
+      async (_config, _idea, _invalid, _error, handlers) => {
+        handlers?.onStreamOpen?.();
+        handlers?.onContent?.("x");
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    expect(store.get(run.id)?.status).toBe("done");
+  });
+
+  it("streams JSON fix content even for small responses", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue("{ bad json }");
     vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
@@ -250,7 +273,7 @@ describe("runGeneration", () => {
     const run = store.create("make app");
     await runGeneration(config, store, run.id, run.idea);
 
-    expect(store.get(run.id)?.logs.join("\n")).not.toContain("Model JSON fix stream");
+    expect(store.get(run.id)?.streams.content).toContain("x");
   });
 
   it("fails after exhausting JSON parse retries", async () => {
@@ -319,10 +342,10 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
-    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+    expect(final?.streams.content).toContain("x".repeat(500));
   });
 
-  it("does not log validation fix milestones before thresholds are reached", async () => {
+  it("streams validation fix content even for small responses", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
     vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
@@ -351,9 +374,8 @@ describe("runGeneration", () => {
     const run = store.create("make app");
     await runGeneration(config, store, run.id, run.idea);
 
-    const logs = store.get(run.id)?.logs.join("\n") ?? "";
-    expect(logs).not.toContain("Model fix stream");
-    expect(logs).not.toContain("Model JSON fix stream");
+    const final = store.get(run.id);
+    expect(final?.streams.content).toContain("x");
   });
 
   it("retries validation with model fixes until checks pass", async () => {
@@ -517,7 +539,7 @@ describe("runGeneration", () => {
     expect(final?.files["index.js"]).toContain("reset");
     expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["follow_up"]);
     expect(final?.logs.some((l) => l.includes("follow-up run"))).toBe(true);
-    expect(final?.logs.some((l) => l.includes("Model follow-up stream"))).toBe(true);
+    expect(final?.streams.content).toContain("x".repeat(500));
     expect(final?.logs.some((l) => l.includes("Follow-up checks passed"))).toBe(true);
   });
 
@@ -550,10 +572,10 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
-    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+    expect(final?.streams.content).toContain("x".repeat(500));
   });
 
-  it("does not log follow-up JSON fix milestones before thresholds are reached", async () => {
+  it("streams follow-up JSON fix content even for small responses", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "updateProjectFromFollowUp").mockResolvedValue("{ bad json }");
     vi.spyOn(llm, "fixInvalidJsonResponse").mockImplementation(
@@ -578,11 +600,10 @@ describe("runGeneration", () => {
       "add settings"
     );
 
-    const logs = store.get(run.id)?.logs.join("\n") ?? "";
-    expect(logs).not.toContain("Model JSON fix stream");
+    expect(store.get(run.id)?.streams.content).toContain("x");
   });
 
-  it("does not log follow-up milestones before thresholds are reached", async () => {
+  it("streams follow-up content even for small responses", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "updateProjectFromFollowUp").mockImplementation(
       async (_config, _idea, _project, _prompt, handlers) => {
@@ -606,8 +627,7 @@ describe("runGeneration", () => {
       "add settings"
     );
 
-    const logs = store.get(run.id)?.logs.join("\n") ?? "";
-    expect(logs).not.toContain("Model follow-up stream");
+    expect(store.get(run.id)?.streams.content).toContain("x");
   });
 
   it("marks follow-up runs failed when the model throws", async () => {
@@ -680,10 +700,10 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
-    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+    expect(final?.streams.content).toContain("x".repeat(500));
   });
 
-  it("does not log runtime repair milestones before thresholds are reached", async () => {
+  it("streams runtime repair content even for small responses", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "fixProjectFromRuntimeError").mockImplementation(
       async (_config, _idea, _project, _error, handlers) => {
@@ -713,9 +733,7 @@ describe("runGeneration", () => {
       "Error: boom"
     );
 
-    const logs = store.get(run.id)?.logs.join("\n") ?? "";
-    expect(logs).not.toContain("Model runtime fix stream");
-    expect(logs).not.toContain("Model JSON fix stream");
+    expect(store.get(run.id)?.streams.content).toContain("x");
   });
 
   it("marks runtime repair failed when the model throws", async () => {
@@ -823,10 +841,10 @@ describe("runGeneration", () => {
     const final = store.get(run.id);
     expect(final?.status).toBe("done");
     expect(llm.fixInvalidJsonResponse).toHaveBeenCalledTimes(1);
-    expect(final?.logs.some((l) => l.includes("Model JSON fix stream"))).toBe(true);
+    expect(final?.streams.content).toContain("x".repeat(500));
   });
 
-  it("does not log validation repair milestones before thresholds are reached", async () => {
+  it("streams validation repair content even for small responses", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
       async (_config, _idea, _project, _error, handlers) => {
@@ -856,9 +874,7 @@ describe("runGeneration", () => {
       "lint still failing"
     );
 
-    const logs = store.get(run.id)?.logs.join("\n") ?? "";
-    expect(logs).not.toContain("Model validation fix stream");
-    expect(logs).not.toContain("Model JSON fix stream");
+    expect(store.get(run.id)?.streams.content).toContain("x");
   });
 
   it("marks validation repair failed when the model throws", async () => {

@@ -430,6 +430,41 @@ body {
   overflow: auto;
 }
 
+.progressPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.logSection {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.logSectionTitle {
+  padding: 10px 14px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.logSection .log {
+  max-height: 180px;
+}
+
+.logSectionThinking .log {
+  color: rgba(167, 139, 250, 0.92);
+}
+
+.logSectionContent .log {
+  color: rgba(156, 255, 239, 0.9);
+}
+
+.logValidation {
+  color: rgba(255, 255, 255, 0.78);
+}
+
 .error {
   padding: 10px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
@@ -537,8 +572,8 @@ body {
     width: 100%;
   }
 
-  .log {
-    max-height: 280px;
+  .logSection .log {
+    max-height: 120px;
   }
 }
 

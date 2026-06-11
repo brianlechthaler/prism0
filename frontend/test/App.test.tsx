@@ -14,13 +14,17 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn()
 }));
 
-vi.mock("../src/hooks/useGeneration", () => ({
-  useModelOptions: () => mocks.modelOptions,
-  useGeneration: () => ({
-    state: { kind: "idle" },
-    start: mocks.start
-  })
-}));
+vi.mock("../src/hooks/useGeneration", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/hooks/useGeneration")>();
+  return {
+    ...actual,
+    useModelOptions: () => mocks.modelOptions,
+    useGeneration: () => ({
+      state: { kind: "idle" },
+      start: mocks.start
+    })
+  };
+});
 
 describe("App", () => {
   beforeEach(() => {

@@ -251,6 +251,12 @@ describe("useGeneration", () => {
         data: JSON.stringify({ type: "log", line: "step" })
       } as MessageEvent);
       source!.onmessage?.({
+        data: JSON.stringify({ type: "stream", channel: "thinking", chunk: "plan" })
+      } as MessageEvent);
+      source!.onmessage?.({
+        data: JSON.stringify({ type: "stream", channel: "content", chunk: "{" })
+      } as MessageEvent);
+      source!.onmessage?.({
         data: JSON.stringify({
           type: "usage",
           metrics: {
@@ -284,6 +290,8 @@ describe("useGeneration", () => {
 
     if (result.current.state.kind === "ready") {
       expect(result.current.state.logs).toContain("step");
+      expect(result.current.state.streams.thinking).toBe("plan");
+      expect(result.current.state.streams.content).toBe("{");
       expect(result.current.state.files["index.html"]).toBe("<html/>");
       expect(result.current.state.usage?.contextUsedPercent).toBe(15);
     }

@@ -27,13 +27,26 @@ export type RunUsageMetrics = {
   buckets: LlmUsageBucket[];
 };
 
+export type StreamChannel = "thinking" | "content";
+
+export type RunStreams = Record<StreamChannel, string>;
+
+export const emptyRunStreams = (): RunStreams => ({ thinking: "", content: "" });
+
 export type GenerationState =
   | { kind: "idle" }
-  | { kind: "generating"; runId: string; logs: string[]; usage?: RunUsageMetrics }
+  | {
+      kind: "generating";
+      runId: string;
+      logs: string[];
+      streams: RunStreams;
+      usage?: RunUsageMetrics;
+    }
   | {
       kind: "ready";
       runId: string;
       logs: string[];
+      streams: RunStreams;
       files: Record<string, string>;
       usage?: RunUsageMetrics;
     }
@@ -41,6 +54,7 @@ export type GenerationState =
       kind: "error";
       message: string;
       logs: string[];
+      streams: RunStreams;
       runId?: string;
       files?: Record<string, string>;
       repairable?: boolean;
@@ -49,6 +63,7 @@ export type GenerationState =
 
 type SsePayload =
   | { type: "log"; line: string }
+  | { type: "stream"; channel: StreamChannel; chunk: string }
   | { type: "usage"; metrics: RunUsageMetrics }
   | { type: "done"; files: Record<string, string> }
   | {
@@ -84,14 +99,32 @@ export function appendLogLine(state: GenerationState, line: string): GenerationS
   return state;
 }
 
+export function appendStreamChunk(
+  state: GenerationState,
+  channel: StreamChannel,
+  chunk: string
+): GenerationState {
+  if (state.kind === "generating" || state.kind === "ready" || state.kind === "error") {
+    return {
+      ...state,
+      streams: {
+        ...state.streams,
+        [channel]: state.streams[channel] + chunk
+      }
+    };
+  }
+  return state;
+}
+
 export function completeGeneration(
   state: GenerationState,
   runId: string,
   files: Record<string, string>
 ): Extract<GenerationState, { kind: "ready" }> {
   const logs = "logs" in state ? state.logs : [];
+  const streams = "streams" in state ? state.streams : emptyRunStreams();
   const usage = "usage" in state ? state.usage : undefined;
-  return { kind: "ready", runId, logs: [...logs, "Ready."], files, usage };
+  return { kind: "ready", runId, logs: [...logs, "Ready."], streams, files, usage };
 }
 
 export function failGeneration(
@@ -100,12 +133,14 @@ export function failGeneration(
   details?: { runId?: string; files?: Record<string, string>; repairable?: boolean }
 ): Extract<GenerationState, { kind: "error" }> {
   const logs = "logs" in state ? state.logs : [];
+  const streams = "streams" in state ? state.streams : emptyRunStreams();
   const usage = "usage" in state ? state.usage : undefined;
   const runId = details?.runId ?? ("runId" in state ? state.runId : undefined);
   return {
     kind: "error",
     message,
     logs,
+    streams,
     usage,
     ...(runId ? { runId } : {}),
     ...(details?.files ? { files: details.files } : {}),
@@ -195,6 +230,8 @@ export function useGeneration() {
 
       if (msg.type === "log") {
         setState((s) => appendLogLine(s, msg.line));
+      } else if (msg.type === "stream") {
+        setState((s) => appendStreamChunk(s, msg.channel, msg.chunk));
       } else if (msg.type === "usage") {
         setState((s) => applyUsageUpdate(s, msg.metrics));
       } else if (msg.type === "done") {
@@ -223,7 +260,7 @@ export function useGeneration() {
   const start = useCallback(
     async (idea: string, model?: string) => {
       eventSourceRef.current?.close();
-      setState({ kind: "generating", runId: "", logs: ["Starting…"] });
+      setState({ kind: "generating", runId: "", logs: ["Starting…"], streams: emptyRunStreams() });
 
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -232,7 +269,7 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [] });
+        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
         return;
       }
 
@@ -241,7 +278,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId,
-        logs: ["Run created.", "Connecting to live progress…"]
+        logs: ["Run created.", "Connecting to live progress…"],
+        streams: emptyRunStreams()
       });
       connectToRun(runId);
     },
@@ -254,7 +292,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId: "",
-        logs: ["Requesting LLM repair for generated app crash…"]
+        logs: ["Requesting LLM repair for generated app crash…"],
+        streams: emptyRunStreams()
       });
 
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
@@ -264,7 +303,7 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [] });
+        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
         return;
       }
 
@@ -273,7 +312,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId: repairRunId,
-        logs: ["Repair run created.", "Connecting to live progress…"]
+        logs: ["Repair run created.", "Connecting to live progress…"],
+        streams: emptyRunStreams()
       });
       connectToRun(repairRunId);
     },
@@ -286,7 +326,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId: "",
-        logs: ["Requesting follow-up changes…"]
+        logs: ["Requesting follow-up changes…"],
+        streams: emptyRunStreams()
       });
 
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
@@ -296,7 +337,7 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [] });
+        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
         return;
       }
 
@@ -305,7 +346,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId: followUpRunId,
-        logs: ["Follow-up run created.", "Connecting to live progress…"]
+        logs: ["Follow-up run created.", "Connecting to live progress…"],
+        streams: emptyRunStreams()
       });
       connectToRun(followUpRunId);
     },
@@ -318,7 +360,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId: "",
-        logs: ["Requesting LLM repair for validation errors…"]
+        logs: ["Requesting LLM repair for validation errors…"],
+        streams: emptyRunStreams()
       });
 
       const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/validation-fix`, {
@@ -328,7 +371,7 @@ export function useGeneration() {
       });
 
       if (!res.ok) {
-        setState({ kind: "error", message: await res.text(), logs: [] });
+        setState({ kind: "error", message: await res.text(), logs: [], streams: emptyRunStreams() });
         return;
       }
 
@@ -337,7 +380,8 @@ export function useGeneration() {
       setState({
         kind: "generating",
         runId: repairRunId,
-        logs: ["Validation repair run created.", "Connecting to live progress…"]
+        logs: ["Validation repair run created.", "Connecting to live progress…"],
+        streams: emptyRunStreams()
       });
       connectToRun(repairRunId);
     },

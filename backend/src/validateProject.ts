@@ -71,7 +71,7 @@ export async function validateGeneratedProject(
     process.execPath,
     [path.join(runDir, "node_modules/eslint/bin/eslint.js"), "."],
     runDir,
-    onLog,
+    (line) => onLog(`[eslint] ${line}`),
     deps.spawn
   );
 
@@ -80,7 +80,7 @@ export async function validateGeneratedProject(
     process.execPath,
     [path.join(runDir, "node_modules/vitest/vitest.mjs"), "run"],
     runDir,
-    onLog,
+    (line) => onLog(`[vitest] ${line}`),
     deps.spawn
   );
 

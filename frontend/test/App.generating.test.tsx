@@ -4,6 +4,8 @@ import { render, screen } from "@testing-library/react";
 import { App } from "../src/ui/App";
 
 vi.mock("../src/hooks/useGeneration", () => ({
+  emptyRunStreams: () => ({ thinking: "", content: "" }),
+  extractValidationErrorFromLogs: () => "",
   useModelOptions: () => ({
     enabled: true,
     defaultModel: "model-a",
@@ -15,6 +17,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
       kind: "generating",
       runId: "abc",
       logs: ["working"],
+      streams: { thinking: "", content: "" },
       usage: {
         inputTokens: 100,
         outputTokens: 40,

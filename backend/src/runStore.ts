@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { GenerationRun, RunStatus, RunUsageMetrics, SseMessage } from "./types.js";
+import type { GenerationRun, RunStatus, RunUsageMetrics, SseMessage, StreamChannel } from "./types.js";
 
 type Subscriber = (message: SseMessage) => void;
+
+function emptyStreams(): GenerationRun["streams"] {
+  return { thinking: "", content: "" };
+}
 
 type InternalRun = GenerationRun & {
   subscribers: Set<Subscriber>;
@@ -32,6 +36,7 @@ export class RunStore {
       idea,
       status: "pending",
       logs: [],
+      streams: emptyStreams(),
       files: {},
       subscribers: new Set(),
       createdAt: now,
@@ -60,6 +65,13 @@ export class RunStore {
       subscriber({ type: "log", line });
     }
 
+    for (const channel of ["thinking", "content"] as const) {
+      const text = run.streams[channel];
+      if (text) {
+        subscriber({ type: "stream", channel, chunk: text });
+      }
+    }
+
     if (run.usage) {
       subscriber({ type: "usage", metrics: run.usage });
     }
@@ -80,6 +92,14 @@ export class RunStore {
     run.logs.push(line);
     run.updatedAt = this.now();
     this.broadcast(run, { type: "log", line });
+  }
+
+  appendStream(id: string, channel: StreamChannel, chunk: string): void {
+    if (!chunk) return;
+    const run = this.require(id);
+    run.streams[channel] += chunk;
+    run.updatedAt = this.now();
+    this.broadcast(run, { type: "stream", channel, chunk });
   }
 
   setStatus(id: string, status: RunStatus): void {
@@ -165,6 +185,7 @@ export class RunStore {
       idea: run.idea,
       status: run.status,
       logs: [...run.logs],
+      streams: { ...run.streams },
       files: { ...run.files },
       summary: run.summary,
       usage: run.usage ? this.cloneUsage(run.usage) : undefined,
