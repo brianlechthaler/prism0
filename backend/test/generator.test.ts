@@ -481,6 +481,76 @@ describe("runGeneration", () => {
     expect(final?.logs.some((l) => l.includes("Re-running validation (attempt 2/"))).toBe(true);
   });
 
+  it("retries validation after a transient fix failure", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    let fixCalls = 0;
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(
+      async (_config, _idea, _project, _error, handlers) => {
+        fixCalls += 1;
+        if (fixCalls === 1) {
+          throw new Error("transient model error");
+        }
+        handlers?.onContent?.("x".repeat(500));
+        return JSON.stringify(validPayload);
+      }
+    );
+
+    let validationCalls = 0;
+    vi.spyOn(validateModule, "validateGeneratedProject").mockImplementation(async () => {
+      validationCalls += 1;
+      if (validationCalls <= 2) {
+        throw new Error("lint failed");
+      }
+      return { lintOutput: "ok", testOutput: "ok" };
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(fixCalls).toBe(2);
+    expect(validationCalls).toBe(3);
+    expect(final?.logs.some((l) => l.includes("Validation fix attempt 1/"))).toBe(true);
+    expect(final?.logs.some((l) => l.includes("Retrying validation with another fix attempt"))).toBe(
+      true
+    );
+  });
+
+  it("handles non-error validation fix failures during retries", async () => {
+    const llm = await import("../src/llm.js");
+    vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    let fixCalls = 0;
+    vi.spyOn(llm, "fixProjectFromValidationErrors").mockImplementation(async () => {
+      fixCalls += 1;
+      if (fixCalls === 1) {
+        throw "plain fix failure";
+      }
+      return JSON.stringify(validPayload);
+    });
+
+    let validationCalls = 0;
+    vi.spyOn(validateModule, "validateGeneratedProject").mockImplementation(async () => {
+      validationCalls += 1;
+      if (validationCalls <= 2) {
+        throw new Error("lint failed");
+      }
+      return { lintOutput: "ok", testOutput: "ok" };
+    });
+
+    const store = new RunStore();
+    const run = store.create("make app");
+    await runGeneration(config, store, run.id, run.idea);
+
+    const final = store.get(run.id);
+    expect(final?.status).toBe("done");
+    expect(final?.logs.some((l) => l.includes("Validation fix attempt 1/5 failed: plain fix failure"))).toBe(
+      true
+    );
+  });
+
   it("handles non-error validation failures during retries", async () => {
     const llm = await import("../src/llm.js");
     vi.spyOn(llm, "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));

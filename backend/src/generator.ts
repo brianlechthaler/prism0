@@ -157,63 +157,75 @@ async function validateProjectWithRetries(
       );
       store.appendLog(runId, `[${timestamp()}] Validation error: ${message}`);
 
-      ({ idea: currentIdea, contextState: currentContextState } = await maybeCompressRunContext(
-        config,
-        store,
-        tracker,
-        runId,
-        currentIdea,
-        currentProject,
-        currentContextState,
-        trackLlmUsage(store, tracker, runId, "context_compress", withModelAttemptLogs(store, runId)),
-        selectedModel
-      ));
-
-      const raw = await fixProjectFromValidationErrors(
-        config,
-        currentIdea,
-        currentProject,
-        message,
-        trackLlmUsage(
+      try {
+        ({ idea: currentIdea, contextState: currentContextState } = await maybeCompressRunContext(
+          config,
           store,
           tracker,
           runId,
-          "validation_fix",
-          withModelAttemptLogs(
-            store,
-            runId,
-            createLlmStreamHandlers(store, runId, {
-              onStreamOpenMessage: "Model validation fix stream connected…"
-            })
-          )
-        ),
-        { selectedModel }
-      );
+          currentIdea,
+          currentProject,
+          currentContextState,
+          trackLlmUsage(store, tracker, runId, "context_compress", withModelAttemptLogs(store, runId)),
+          selectedModel
+        ));
 
-      store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
-      const parsed = await parseProjectWithRetries(
-        config,
-        store,
-        tracker,
-        runId,
-        currentIdea,
-        raw,
-        createLlmStreamHandlers(store, runId),
-        selectedModel,
-        currentProject,
-        currentContextState
-      );
-      currentProject = parsed.project;
-      currentIdea = parsed.idea;
-      currentContextState = parsed.contextState;
-      store.appendLog(
-        runId,
-        `[${timestamp()}] Fixed project summary: ${currentProject.summary}`
-      );
-      store.appendLog(
-        runId,
-        `[${timestamp()}] Re-running validation (attempt ${attempt + 1}/${MAX_VALIDATION_ATTEMPTS})…`
-      );
+        const raw = await fixProjectFromValidationErrors(
+          config,
+          currentIdea,
+          currentProject,
+          message,
+          trackLlmUsage(
+            store,
+            tracker,
+            runId,
+            "validation_fix",
+            withModelAttemptLogs(
+              store,
+              runId,
+              createLlmStreamHandlers(store, runId, {
+                onStreamOpenMessage: "Model validation fix stream connected…"
+              })
+            )
+          ),
+          { selectedModel }
+        );
+
+        store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
+        const parsed = await parseProjectWithRetries(
+          config,
+          store,
+          tracker,
+          runId,
+          currentIdea,
+          raw,
+          createLlmStreamHandlers(store, runId),
+          selectedModel,
+          currentProject,
+          currentContextState
+        );
+        currentProject = parsed.project;
+        currentIdea = parsed.idea;
+        currentContextState = parsed.contextState;
+        store.appendLog(
+          runId,
+          `[${timestamp()}] Fixed project summary: ${currentProject.summary}`
+        );
+        store.appendLog(
+          runId,
+          `[${timestamp()}] Re-running validation (attempt ${attempt + 1}/${MAX_VALIDATION_ATTEMPTS})…`
+        );
+      } catch (fixError) {
+        const fixMessage = fixError instanceof Error ? fixError.message : String(fixError);
+        store.appendLog(
+          runId,
+          `[${timestamp()}] Validation fix attempt ${attempt}/${MAX_VALIDATION_ATTEMPTS} failed: ${fixMessage}`
+        );
+        store.appendLog(
+          runId,
+          `[${timestamp()}] Retrying validation with another fix attempt…`
+        );
+      }
     }
   }
 
