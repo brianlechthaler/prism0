@@ -127,8 +127,7 @@ remove_container_if_exists() {
 
 wait_for_ollama() {
   echo "Waiting for Ollama to become ready..."
-  local attempt
-  for attempt in $(seq 1 60); do
+  for _ in $(seq 1 60); do
     if docker exec "$OLLAMA_CONTAINER" ollama list >/dev/null 2>&1; then
       echo "Ollama is ready."
       return 0
@@ -240,8 +239,7 @@ prism0_health_check() {
 
 wait_for_prism0() {
   echo "Waiting for prism0 health check..."
-  local attempt
-  for attempt in $(seq 1 60); do
+  for _ in $(seq 1 60); do
     if prism0_health_check; then
       echo "prism0 is ready."
       return 0
