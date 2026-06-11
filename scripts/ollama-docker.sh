@@ -18,6 +18,8 @@ readonly OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 readonly OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}"
 readonly REQUEST_TIMEOUT_MS="${REQUEST_TIMEOUT_MS:-600000}"
 readonly OPENAI_CONTEXT_WINDOW="${OPENAI_CONTEXT_WINDOW:-32768}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
 
 usage() {
   cat <<'EOF'
@@ -45,6 +47,7 @@ Environment overrides:
   REQUEST_TIMEOUT_MS      Upstream timeout for slow local models (default: 600000)
   OPENAI_CONTEXT_WINDOW   UI context bar size (default: 32768)
   PRISM0_BUILD=1          Build PRISM0_IMAGE from the local repo instead of pulling
+  PRISM0_PULL_ONLY=1      Fail instead of falling back to a local build when pull fails
   SKIP_IMAGE_PULL=1       Skip "docker pull" for the prism0 image (use a preloaded tag)
   SKIP_MODEL_PULL=1       Skip "ollama pull" if the model is already cached
 
@@ -158,10 +161,34 @@ pull_model() {
   docker exec "$OLLAMA_CONTAINER" ollama pull "$OLLAMA_MODEL"
 }
 
+local_repo_available() {
+  [[ -f "${REPO_ROOT}/Dockerfile" && -f "${REPO_ROOT}/package.json" ]]
+}
+
+build_prism0_image() {
+  echo "Building prism0 image from local repo: $PRISM0_IMAGE"
+  docker build -t "$PRISM0_IMAGE" "$REPO_ROOT"
+}
+
+print_pull_failure_help() {
+  cat >&2 <<EOF
+Failed to pull prism0 image: $PRISM0_IMAGE
+
+If the GHCR package is public, stale Docker credentials for ghcr.io often cause
+"denied" errors. Clear them and retry:
+
+  docker logout ghcr.io
+  ./scripts/ollama-docker.sh start
+
+Or build from a local clone instead:
+
+  PRISM0_BUILD=1 ./scripts/ollama-docker.sh start
+EOF
+}
+
 ensure_prism0_image() {
   if [[ "${PRISM0_BUILD:-0}" == "1" ]]; then
-    echo "Building prism0 image from local repo: $PRISM0_IMAGE"
-    docker build -t "$PRISM0_IMAGE" .
+    build_prism0_image
     return 0
   fi
 
@@ -176,7 +203,27 @@ ensure_prism0_image() {
   fi
 
   echo "Pulling latest prism0 image: $PRISM0_IMAGE"
-  docker pull "$PRISM0_IMAGE"
+  local pull_output=""
+  if pull_output="$(docker pull "$PRISM0_IMAGE" 2>&1)"; then
+    printf '%s\n' "$pull_output"
+    return 0
+  fi
+
+  printf '%s\n' "$pull_output" >&2
+
+  if [[ "${PRISM0_PULL_ONLY:-0}" == "1" ]]; then
+    print_pull_failure_help
+    exit 1
+  fi
+
+  if local_repo_available; then
+    echo "Could not pull $PRISM0_IMAGE; building from local repo instead." >&2
+    build_prism0_image
+    return 0
+  fi
+
+  print_pull_failure_help
+  exit 1
 }
 
 start_ollama() {

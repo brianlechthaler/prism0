@@ -175,6 +175,12 @@ jobs:
           ./scripts/ollama-docker.sh --help | grep -F "GPU acceleration is optional and off by default"
           grep -q 'OLLAMA_GPU="${OLLAMA_GPU:-0}"' scripts/ollama-docker.sh
 
+      - name: Verify GHCR pull fallback to local build
+        run: |
+          ./scripts/ollama-docker.sh --help | grep -F "PRISM0_PULL_ONLY=1"
+          grep -q 'local_repo_available()' scripts/ollama-docker.sh
+          grep -q 'Could not pull' scripts/ollama-docker.sh
+
   kubernetes:
     name: Kubernetes manifests
     runs-on: ubuntu-latest
