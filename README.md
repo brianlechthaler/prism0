@@ -122,7 +122,7 @@ Quick start (CPU inference):
 ./scripts/ollama-docker.sh start
 ```
 
-Open **http://localhost:8787**. The first run pulls the latest `ghcr.io/brianlechthaler/prism0` image and the default coding model (`qwen2.5-coder:32b`), which can take several minutes.
+Open **http://localhost:8787**. The first run pulls the latest `ghcr.io/brianlechthaler/prism0` image and the default coding model (`qwen2.5-coder:32b`), which can take several minutes. If the pull fails (for example `denied` from stale `ghcr.io` credentials), the script automatically builds from the local repo when run inside a clone.
 
 Enable GPU acceleration on a 24 GiB card (for example RTX 3090/4090):
 
@@ -151,6 +151,7 @@ Useful environment overrides:
 | `SKIP_MODEL_PULL` | unset | Set to `1` to skip `ollama pull` when the model is already cached |
 | `SKIP_IMAGE_PULL` | unset | Set to `1` to skip `docker pull` for the prism0 image |
 | `PRISM0_BUILD` | unset | Set to `1` to build `PRISM0_IMAGE` from the local repo instead of pulling from GHCR |
+| `PRISM0_PULL_ONLY` | unset | Set to `1` to fail instead of falling back to a local build when pull fails |
 
 Ollama model files are stored in the Docker volume `prism0-ollama-data`. `./scripts/ollama-docker.sh stop` removes the containers but keeps that volume for faster restarts.
 
