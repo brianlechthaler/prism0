@@ -53,6 +53,46 @@ describe("RunStore", () => {
     unsubscribe();
   });
 
+  it("streams thinking and content chunks", () => {
+    const store = new RunStore();
+    const run = store.create("idea");
+    const events: Array<{ type: string; channel?: string; chunk?: string }> = [];
+
+    store.subscribe(run.id, (msg) => {
+      events.push(msg);
+    });
+
+    store.appendStream(run.id, "thinking", "plan ");
+    store.appendStream(run.id, "content", "{");
+
+    expect(events).toEqual([
+      { type: "stream", channel: "thinking", chunk: "plan " },
+      { type: "stream", channel: "content", chunk: "{" }
+    ]);
+    expect(store.get(run.id)?.streams).toEqual({ thinking: "plan ", content: "{" });
+  });
+
+  it("ignores empty stream chunks", () => {
+    const store = new RunStore();
+    const run = store.create("idea");
+    store.appendStream(run.id, "thinking", "");
+    expect(store.get(run.id)?.streams.thinking).toBe("");
+  });
+
+  it("replays stream buffers for late subscribers", () => {
+    const store = new RunStore();
+    const run = store.create("idea");
+    store.appendStream(run.id, "thinking", "reasoning");
+    store.appendStream(run.id, "content", "code");
+
+    const replay: string[] = [];
+    store.subscribe(run.id, (msg) => {
+      if (msg.type === "stream") replay.push(`${msg.channel}:${msg.chunk}`);
+    });
+
+    expect(replay).toEqual(["thinking:reasoning", "content:code"]);
+  });
+
   it("replays state for late subscribers", () => {
     const store = new RunStore();
     const run = store.create("idea");
@@ -209,5 +249,6 @@ describe("RunStore", () => {
     const store = new RunStore();
     expect(() => store.subscribe("missing", () => {})).toThrow(/not found/i);
     expect(() => store.appendLog("missing", "x")).toThrow(/not found/i);
+    expect(() => store.appendStream("missing", "thinking", "x")).toThrow(/not found/i);
   });
 });

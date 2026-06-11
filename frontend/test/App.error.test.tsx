@@ -16,7 +16,8 @@ const mocks = vi.hoisted(() => ({
   state: {
     kind: "error",
     message: "something broke",
-    logs: ["failed"]
+    logs: ["failed"],
+    streams: { thinking: "", content: "" }
   } as GenerationState
 }));
 
@@ -52,7 +53,8 @@ describe("App error state", () => {
     mocks.state = {
       kind: "error",
       message: "something broke",
-      logs: ["failed"]
+      logs: ["failed"],
+      streams: { thinking: "", content: "" }
     };
   });
 
@@ -107,6 +109,7 @@ describe("App error state", () => {
       kind: "ready",
       runId: "r1",
       logs: ["ready"],
+      streams: { thinking: "", content: "" },
       files: {
         "index.html": "<html></html>",
         "index.js": "export const x = 1;"
@@ -136,6 +139,7 @@ describe("App error state", () => {
       kind: "ready",
       runId: "r1",
       logs: ["ready"],
+      streams: { thinking: "", content: "" },
       files: {
         "index.html": "<html><head></head><body><script src=\"index.js\"></script></body></html>",
         "index.js": "throw new Error('boom');"
@@ -178,6 +182,7 @@ describe("App error state", () => {
       message: "lint still failing",
       repairable: true,
       logs: ["[2026-01-01T00:00:00.000Z] Validation error: eslint failed on index.js"],
+      streams: { thinking: "", content: "" },
       files: {
         "index.html": "<html><head></head><body><script src=\"index.js\"></script></body></html>",
         "index.js": "export const broken = true;"
@@ -203,6 +208,7 @@ describe("App error state", () => {
       message: "lint still failing",
       repairable: true,
       logs: ["failed"],
+      streams: { thinking: "", content: "" },
       files: { "index.js": "broken();" }
     };
 

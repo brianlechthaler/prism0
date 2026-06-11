@@ -32,8 +32,13 @@ export type RunUsageMetrics = {
   buckets: LlmUsageBucket[];
 };
 
+export type StreamChannel = "thinking" | "content";
+
+export type RunStreams = Record<StreamChannel, string>;
+
 export type SseMessage =
   | { type: "log"; line: string }
+  | { type: "stream"; channel: StreamChannel; chunk: string }
   | { type: "usage"; metrics: RunUsageMetrics }
   | { type: "done"; files: Record<string, string> }
   | {
@@ -51,6 +56,7 @@ export type GenerationRun = {
   idea: string;
   status: RunStatus;
   logs: string[];
+  streams: RunStreams;
   files: Record<string, string>;
   summary?: string;
   usage?: RunUsageMetrics;

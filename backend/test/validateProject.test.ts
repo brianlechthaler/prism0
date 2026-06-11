@@ -89,6 +89,28 @@ describe("validateGeneratedProject", () => {
     expect(logs.some((l) => l.includes("Validation finished successfully"))).toBe(true);
   });
 
+  it("prefixes eslint and vitest command output in logs", async () => {
+    const deps = createDeps({
+      copyConfigs: vi.fn().mockResolvedValue(undefined),
+      execute: vi
+        .fn()
+        .mockImplementationOnce(async (_cmd, _args, _cwd, onLog) => {
+          onLog("[stdout] lint passed");
+          return "lint ok";
+        })
+        .mockImplementationOnce(async (_cmd, _args, _cwd, onLog) => {
+          onLog("[stdout] tests passed");
+          return "tests ok";
+        })
+    });
+
+    const logs: string[] = [];
+    await validateGeneratedProject("run-1", files, (line) => logs.push(line), deps);
+
+    expect(logs.some((l) => l.includes("[eslint] [stdout] lint passed"))).toBe(true);
+    expect(logs.some((l) => l.includes("[vitest] [stdout] tests passed"))).toBe(true);
+  });
+
   it("rejects unsafe generated filenames before writing files", async () => {
     const deps = createDeps({
       copyConfigs: vi.fn().mockResolvedValue(undefined),

@@ -15,6 +15,8 @@ vi.mock("../src/ui/EditorPreview", () => ({
 }));
 
 vi.mock("../src/hooks/useGeneration", () => ({
+  emptyRunStreams: () => ({ thinking: "", content: "" }),
+  extractValidationErrorFromLogs: () => "",
   useModelOptions: () => ({
     enabled: true,
     defaultModel: "model-a",
@@ -26,6 +28,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
       kind: "ready",
       runId: "abc",
       logs: ["done"],
+      streams: { thinking: "", content: "" },
       files: {
         "index.html": "<html></html>",
         "index.js": "export const x = 1;",

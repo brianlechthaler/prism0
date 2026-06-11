@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  emptyRunStreams,
   extractValidationErrorFromLogs,
   useGeneration,
   useModelOptions
 } from "../hooks/useGeneration";
-import { UsageMetricsPanel } from "./UsageMetrics";
+import { ProgressPanel } from "./ProgressPanel";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
 export const PREVIEW_ERROR_MESSAGE_TYPE = "prism0-preview-error";
@@ -107,7 +108,6 @@ export function App() {
   const { state, start, repair, repairValidation, followUp } = useGeneration();
   const modelOptions = useModelOptions();
   const [selectedModel, setSelectedModel] = React.useState("");
-  const logRef = useRef<HTMLDivElement | null>(null);
   const ideaTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRunId = "runId" in state ? state.runId : "";
   const usage = "usage" in state ? state.usage : undefined;
@@ -123,11 +123,6 @@ export function App() {
     if (!isIdeaMultiline) return;
     ideaTextAreaRef.current?.focus();
   }, [isIdeaMultiline]);
-
-  useEffect(() => {
-    if (!logRef.current || !("logs" in state)) return;
-    logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [state]);
 
   useEffect(() => {
     setPreviewError(null);
@@ -324,10 +319,15 @@ export function App() {
         <section className="grid">
           <div className="panel">
             <div className="panelTitle">Verbose progress</div>
-            <UsageMetricsPanel metrics={usage} />
-            <div className="log" role="log" aria-live="polite" ref={logRef}>
-              {"logs" in state ? state.logs.join("\n") : "Enter an idea and hit Submit."}
-            </div>
+            {"logs" in state ? (
+              <ProgressPanel logs={state.logs} streams={state.streams} usage={usage} />
+            ) : (
+              <ProgressPanel
+                logs={[]}
+                streams={emptyRunStreams()}
+                placeholder="Enter an idea and hit Submit."
+              />
+            )}
             {state.kind === "error" ? <div className="error">Error: {state.message}</div> : null}
             {validationRepairError && state.kind === "error" && state.runId ? (
               <div className="runtimeError" role="alert">

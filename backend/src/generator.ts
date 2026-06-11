@@ -18,6 +18,43 @@ function timestamp(): string {
   return new Date().toISOString();
 }
 
+function createLlmStreamHandlers(
+  store: RunStore,
+  runId: string,
+  options: {
+    onStreamActivity?: () => void;
+    onStreamOpenMessage?: string;
+  } = {}
+): Pick<StreamHandlers, "onStreamOpen" | "onReasoning" | "onContent"> {
+  return {
+    onStreamOpen: () => {
+      if (options.onStreamOpenMessage) {
+        store.appendLog(runId, `[${timestamp()}] ${options.onStreamOpenMessage}`);
+      }
+    },
+    onReasoning: (chunk) => {
+      options.onStreamActivity?.();
+      store.appendStream(runId, "thinking", chunk);
+    },
+    onContent: (chunk) => {
+      options.onStreamActivity?.();
+      store.appendStream(runId, "content", chunk);
+    }
+  };
+}
+
+function logParsedProjectFiles(
+  store: RunStore,
+  runId: string,
+  files: Record<string, string>
+): void {
+  store.appendLog(runId, `[${timestamp()}] --- Parsed generated files ---`);
+  for (const [filename, content] of Object.entries(files)) {
+    store.appendLog(runId, `[${timestamp()}] ${filename} (${content.length} chars)`);
+    store.appendStream(runId, "content", `\n\n=== ${filename} ===\n${content}\n`);
+  }
+}
+
 async function parseProjectWithRetries(
   config: AppConfig,
   store: RunStore,
@@ -78,7 +115,7 @@ async function validateProjectWithRetries(
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
     try {
       await validateGeneratedProject(runId, project.files, (line) => {
-        store.appendLog(runId, `[${timestamp()}] ${line}`);
+        store.appendLog(runId, `[${timestamp()}] [validation] ${line}`);
       });
       return project;
     } catch (error) {
@@ -94,7 +131,6 @@ async function validateProjectWithRetries(
       );
       store.appendLog(runId, `[${timestamp()}] Validation error: ${message}`);
 
-      let fixStreamChars = 0;
       const raw = await fixProjectFromValidationErrors(
         config,
         idea,
@@ -105,17 +141,13 @@ async function validateProjectWithRetries(
           tracker,
           runId,
           "validation_fix",
-          withModelAttemptLogs(store, runId, {
-            onContent: (chunk) => {
-              fixStreamChars += chunk.length;
-              if (fixStreamChars % 500 < chunk.length) {
-                store.appendLog(
-                  runId,
-                  `[${timestamp()}] Model fix stream… ${fixStreamChars} chars received`
-                );
-              }
-            }
-          })
+          withModelAttemptLogs(
+            store,
+            runId,
+            createLlmStreamHandlers(store, runId, {
+              onStreamOpenMessage: "Model validation fix stream connected…"
+            })
+          )
         ),
         { selectedModel }
       );
@@ -128,17 +160,7 @@ async function validateProjectWithRetries(
         runId,
         idea,
         raw,
-        {
-          onContent: (chunk) => {
-            fixStreamChars += chunk.length;
-            if (fixStreamChars % 500 < chunk.length) {
-              store.appendLog(
-                runId,
-                `[${timestamp()}] Model JSON fix stream… ${fixStreamChars} chars received`
-              );
-            }
-          }
-        },
+        createLlmStreamHandlers(store, runId),
         selectedModel
       );
       store.appendLog(
@@ -183,7 +205,6 @@ export async function runGeneration(
       `[${timestamp()}] Calling OpenAI-compatible chat completions API (streaming enabled)…`
     );
 
-    let streamedChars = 0;
     let streamedReasoningChars = 0;
     let sawStreamActivity = false;
 
@@ -205,40 +226,24 @@ export async function runGeneration(
           tracker,
           runId,
           "generate",
-          withModelAttemptLogs(store, runId, {
-            onStreamOpen: () => {
-              store.appendLog(
-                runId,
-                `[${timestamp()}] Model stream connected; waiting for first token…`
-              );
-            },
-            onReasoning: (chunk) => {
-              sawStreamActivity = true;
-              streamedReasoningChars += chunk.length;
-              if (streamedReasoningChars % 400 < chunk.length) {
-                store.appendLog(
-                  runId,
-                  `[${timestamp()}] Model reasoning stream… ${streamedReasoningChars} chars so far`
-                );
+          withModelAttemptLogs(
+            store,
+            runId,
+            createLlmStreamHandlers(store, runId, {
+              onStreamOpenMessage: "Model stream connected; waiting for first token…",
+              onStreamActivity: () => {
+                sawStreamActivity = true;
               }
-            },
-            onContent: (chunk) => {
-              sawStreamActivity = true;
-              streamedChars += chunk.length;
-              if (streamedChars % 500 < chunk.length) {
-                store.appendLog(
-                  runId,
-                  `[${timestamp()}] Model content stream… ${streamedChars} chars received`
-                );
-              }
-            }
-          })
+            })
+          )
         ),
         { selectedModel }
       );
     } finally {
       clearInterval(heartbeat);
     }
+
+    streamedReasoningChars = store.get(runId)!.streams.thinking.length;
 
     store.appendLog(
       runId,
@@ -253,17 +258,7 @@ export async function runGeneration(
       runId,
       idea,
       raw,
-      {
-        onContent: (chunk) => {
-          streamedChars += chunk.length;
-          if (streamedChars % 500 < chunk.length) {
-            store.appendLog(
-              runId,
-              `[${timestamp()}] Model JSON fix stream… ${streamedChars} chars received`
-            );
-          }
-        }
-      },
+      createLlmStreamHandlers(store, runId),
       selectedModel
     );
     store.appendLog(
@@ -275,6 +270,7 @@ export async function runGeneration(
       runId,
       `[${timestamp()}] Generated files: ${Object.keys(project.files).join(", ")}`
     );
+    logParsedProjectFiles(store, runId, project.files);
 
     project = await validateProjectWithRetries(config, store, tracker, runId, idea, project, selectedModel);
     lastKnownFiles = project.files;
@@ -314,7 +310,6 @@ export async function runFollowUp(
       `[${timestamp()}] Requesting updates from model ${selectedModel || config.openaiModel}…`
     );
 
-    let followUpStreamChars = 0;
     const raw = await updateProjectFromFollowUp(
       config,
       idea,
@@ -325,20 +320,13 @@ export async function runFollowUp(
         tracker,
         runId,
         "follow_up",
-        withModelAttemptLogs(store, runId, {
-          onStreamOpen: () => {
-            store.appendLog(runId, `[${timestamp()}] Model follow-up stream connected…`);
-          },
-          onContent: (chunk) => {
-            followUpStreamChars += chunk.length;
-            if (followUpStreamChars % 500 < chunk.length) {
-              store.appendLog(
-                runId,
-                `[${timestamp()}] Model follow-up stream… ${followUpStreamChars} chars received`
-              );
-            }
-          }
-        })
+        withModelAttemptLogs(
+          store,
+          runId,
+          createLlmStreamHandlers(store, runId, {
+            onStreamOpenMessage: "Model follow-up stream connected…"
+          })
+        )
       ),
       { selectedModel }
     );
@@ -351,21 +339,12 @@ export async function runFollowUp(
       runId,
       augmentedIdea,
       raw,
-      {
-        onContent: (chunk) => {
-          followUpStreamChars += chunk.length;
-          if (followUpStreamChars % 500 < chunk.length) {
-            store.appendLog(
-              runId,
-              `[${timestamp()}] Model JSON fix stream… ${followUpStreamChars} chars received`
-            );
-          }
-        }
-      },
+      createLlmStreamHandlers(store, runId),
       selectedModel
     );
     store.appendLog(runId, `[${timestamp()}] Follow-up summary: ${updatedProject.summary}`);
     lastKnownFiles = updatedProject.files;
+    logParsedProjectFiles(store, runId, updatedProject.files);
 
     updatedProject = await validateProjectWithRetries(
       config,
@@ -408,7 +387,6 @@ export async function runRuntimeRepair(
       `[${timestamp()}] Requesting browser crash fixes from model ${selectedModel || config.openaiModel}…`
     );
 
-    let fixStreamChars = 0;
     const raw = await fixProjectFromRuntimeError(
       config,
       idea,
@@ -419,20 +397,13 @@ export async function runRuntimeRepair(
         tracker,
         runId,
         "runtime_fix",
-        withModelAttemptLogs(store, runId, {
-          onStreamOpen: () => {
-            store.appendLog(runId, `[${timestamp()}] Model repair stream connected…`);
-          },
-          onContent: (chunk) => {
-            fixStreamChars += chunk.length;
-            if (fixStreamChars % 500 < chunk.length) {
-              store.appendLog(
-                runId,
-                `[${timestamp()}] Model runtime fix stream… ${fixStreamChars} chars received`
-              );
-            }
-          }
-        })
+        withModelAttemptLogs(
+          store,
+          runId,
+          createLlmStreamHandlers(store, runId, {
+            onStreamOpenMessage: "Model repair stream connected…"
+          })
+        )
       ),
       { selectedModel }
     );
@@ -445,17 +416,7 @@ export async function runRuntimeRepair(
       runId,
       idea,
       raw,
-      {
-        onContent: (chunk) => {
-          fixStreamChars += chunk.length;
-          if (fixStreamChars % 500 < chunk.length) {
-            store.appendLog(
-              runId,
-              `[${timestamp()}] Model JSON fix stream… ${fixStreamChars} chars received`
-            );
-          }
-        }
-      },
+      createLlmStreamHandlers(store, runId),
       selectedModel
     );
     store.appendLog(
@@ -463,6 +424,7 @@ export async function runRuntimeRepair(
       `[${timestamp()}] Runtime repair summary: ${repairedProject.summary}`
     );
     lastKnownFiles = repairedProject.files;
+    logParsedProjectFiles(store, runId, repairedProject.files);
 
     repairedProject = await validateProjectWithRetries(
       config,
@@ -505,7 +467,6 @@ export async function runValidationRepair(
       `[${timestamp()}] Requesting validation fixes from model ${selectedModel || config.openaiModel}…`
     );
 
-    let fixStreamChars = 0;
     const raw = await fixProjectFromValidationErrors(
       config,
       idea,
@@ -516,20 +477,13 @@ export async function runValidationRepair(
         tracker,
         runId,
         "validation_fix",
-        withModelAttemptLogs(store, runId, {
-          onStreamOpen: () => {
-            store.appendLog(runId, `[${timestamp()}] Model validation repair stream connected…`);
-          },
-          onContent: (chunk) => {
-            fixStreamChars += chunk.length;
-            if (fixStreamChars % 500 < chunk.length) {
-              store.appendLog(
-                runId,
-                `[${timestamp()}] Model validation fix stream… ${fixStreamChars} chars received`
-              );
-            }
-          }
-        })
+        withModelAttemptLogs(
+          store,
+          runId,
+          createLlmStreamHandlers(store, runId, {
+            onStreamOpenMessage: "Model validation repair stream connected…"
+          })
+        )
       ),
       { selectedModel }
     );
@@ -542,17 +496,7 @@ export async function runValidationRepair(
       runId,
       idea,
       raw,
-      {
-        onContent: (chunk) => {
-          fixStreamChars += chunk.length;
-          if (fixStreamChars % 500 < chunk.length) {
-            store.appendLog(
-              runId,
-              `[${timestamp()}] Model JSON fix stream… ${fixStreamChars} chars received`
-            );
-          }
-        }
-      },
+      createLlmStreamHandlers(store, runId),
       selectedModel
     );
     store.appendLog(
@@ -560,6 +504,7 @@ export async function runValidationRepair(
       `[${timestamp()}] Validation repair summary: ${repairedProject.summary}`
     );
     lastKnownFiles = repairedProject.files;
+    logParsedProjectFiles(store, runId, repairedProject.files);
 
     repairedProject = await validateProjectWithRetries(
       config,

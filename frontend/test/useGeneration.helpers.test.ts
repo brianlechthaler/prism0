@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   applyUsageUpdate,
   appendLogLine,
+  appendStreamChunk,
   completeGeneration,
+  emptyRunStreams,
   extractValidationErrorFromLogs,
   failGeneration,
   type RunUsageMetrics
@@ -34,8 +36,37 @@ describe("appendLogLine", () => {
   });
 
   it("appends logs while generating", () => {
-    const next = appendLogLine({ kind: "generating", runId: "r1", logs: ["a"] }, "b");
-    expect(next).toEqual({ kind: "generating", runId: "r1", logs: ["a", "b"] });
+    const next = appendLogLine(
+      { kind: "generating", runId: "r1", logs: ["a"], streams: emptyRunStreams() },
+      "b"
+    );
+    expect(next).toEqual({
+      kind: "generating",
+      runId: "r1",
+      logs: ["a", "b"],
+      streams: emptyRunStreams()
+    });
+  });
+});
+
+describe("appendStreamChunk", () => {
+  it("ignores stream chunks while idle", () => {
+    expect(appendStreamChunk({ kind: "idle" }, "thinking", "x")).toEqual({ kind: "idle" });
+  });
+
+  it("accumulates stream chunks while generating", () => {
+    const initial = { kind: "generating" as const, runId: "r1", logs: [], streams: emptyRunStreams() };
+    const next = appendStreamChunk(
+      appendStreamChunk(initial, "thinking", "plan"),
+      "content",
+      "{"
+    );
+    expect(next).toEqual({
+      kind: "generating",
+      runId: "r1",
+      logs: [],
+      streams: { thinking: "plan", content: "{" }
+    });
   });
 });
 
@@ -45,6 +76,7 @@ describe("completeGeneration", () => {
       kind: "ready",
       runId: "r1",
       logs: ["Ready."],
+      streams: emptyRunStreams(),
       files: { "index.html": "<html/>" }
     });
   });
@@ -52,7 +84,7 @@ describe("completeGeneration", () => {
   it("preserves usage metrics", () => {
     expect(
       completeGeneration(
-        { kind: "generating", runId: "r1", logs: [], usage },
+        { kind: "generating", runId: "r1", logs: [], streams: emptyRunStreams(), usage },
         "r1",
         { "index.html": "<html/>" }
       ).usage
@@ -65,20 +97,24 @@ describe("failGeneration", () => {
     expect(failGeneration({ kind: "idle" }, "boom")).toEqual({
       kind: "error",
       message: "boom",
-      logs: []
+      logs: [],
+      streams: emptyRunStreams()
     });
   });
 
   it("preserves usage metrics", () => {
-    expect(failGeneration({ kind: "generating", runId: "r1", logs: [], usage }, "boom").usage).toBe(
-      usage
-    );
+    expect(
+      failGeneration(
+        { kind: "generating", runId: "r1", logs: [], streams: emptyRunStreams(), usage },
+        "boom"
+      ).usage
+    ).toBe(usage);
   });
 
   it("preserves repairable run context", () => {
     expect(
       failGeneration(
-        { kind: "generating", runId: "r1", logs: ["step"] },
+        { kind: "generating", runId: "r1", logs: ["step"], streams: emptyRunStreams() },
         "lint still failing",
         {
           runId: "r1",
@@ -90,6 +126,7 @@ describe("failGeneration", () => {
       kind: "error",
       message: "lint still failing",
       logs: ["step"],
+      streams: emptyRunStreams(),
       runId: "r1",
       files: { "index.js": "broken();" },
       repairable: true
@@ -123,10 +160,11 @@ describe("applyUsageUpdate", () => {
   });
 
   it("applies updates while a run is active", () => {
-    expect(applyUsageUpdate({ kind: "generating", runId: "r1", logs: [] }, usage)).toEqual({
+    expect(applyUsageUpdate({ kind: "generating", runId: "r1", logs: [], streams: emptyRunStreams() }, usage)).toEqual({
       kind: "generating",
       runId: "r1",
       logs: [],
+      streams: emptyRunStreams(),
       usage
     });
   });
