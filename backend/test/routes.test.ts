@@ -9,6 +9,7 @@ const config = {
   openaiModel: "m",
   openaiModels: ["m"],
   modelPickerEnabled: false,
+  yoloModeEnabled: false,
   host: "127.0.0.1",
   port: 8787,
   requestTimeoutMs: 120_000,
@@ -69,7 +70,8 @@ describe("registerRoutes", () => {
       expect(await res.json()).toEqual({
         enabled: false,
         defaultModel: "primary",
-        models: []
+        models: [],
+        yoloModeEnabled: false
       });
     });
   });
@@ -88,7 +90,8 @@ describe("registerRoutes", () => {
       expect(await res.json()).toEqual({
         enabled: true,
         defaultModel: "primary",
-        models: ["primary", "fallback"]
+        models: ["primary", "fallback"],
+        yoloModeEnabled: false
       });
     });
   });
@@ -200,8 +203,66 @@ describe("registerRoutes", () => {
         store,
         json.runId,
         "make a tiny app",
-        "fallback"
+        "fallback",
+        { skipValidation: false }
       );
+    });
+  });
+
+  it("starts YOLO generation when enabled and requested", async () => {
+    const generationSpy = vi
+      .spyOn(await import("../src/generator.js"), "runGeneration")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp(new RunStore(), { ...config, yoloModeEnabled: true });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a tiny app", yolo: true })
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(generationSpy).toHaveBeenCalledWith(
+        { ...config, yoloModeEnabled: true },
+        store,
+        json.runId,
+        "make a tiny app",
+        undefined,
+        { skipValidation: true }
+      );
+    });
+  });
+
+  it("rejects YOLO generation when YOLO mode is disabled", async () => {
+    vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
+    const { app } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a tiny app", yolo: true })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("YOLO mode is disabled");
+    });
+  });
+
+  it("rejects YOLO follow-up requests when YOLO mode is disabled", async () => {
+    vi.spyOn(await import("../src/generator.js"), "runFollowUp").mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+    const sourceRun = store.create("make app");
+    store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: "add settings", yolo: true })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("YOLO mode is disabled");
     });
   });
 
@@ -345,7 +406,8 @@ describe("registerRoutes", () => {
           files: expect.objectContaining({ "index.js": "export const x = 1;" })
         }),
         "add a settings panel",
-        undefined
+        undefined,
+        { skipValidation: false }
       );
     });
   });

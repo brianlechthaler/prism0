@@ -33,6 +33,7 @@ vi.mock("../src/hooks/useGeneration", async (importOriginal) => {
       enabled: true,
       defaultModel: "model-a",
       models: ["model-a", "model-b"],
+      yoloModeEnabled: false,
       isLoading: false
     }),
     useGeneration: () => ({

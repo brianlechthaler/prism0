@@ -17,10 +17,12 @@ vi.mock("../src/ui/EditorPreview", () => ({
 vi.mock("../src/hooks/useGeneration", () => ({
   emptyRunStreams: () => ({ thinking: "", content: "" }),
   extractValidationErrorFromLogs: () => "",
+  isYoloRun: () => false,
   useModelOptions: () => ({
     enabled: true,
     defaultModel: "model-a",
     models: ["model-a", "model-b"],
+    yoloModeEnabled: false,
     isLoading: false
   }),
   useGeneration: () => ({
@@ -64,7 +66,7 @@ describe("App ready state", () => {
     fireEvent.change(prompt, { target: { value: "add a settings panel" } });
     fireEvent.click(screen.getByRole("button", { name: /update app/i }));
 
-    expect(followUp).toHaveBeenCalledWith("abc", "add a settings panel", "model-a");
+    expect(followUp).toHaveBeenCalledWith("abc", "add a settings panel", "model-a", undefined);
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -86,7 +88,7 @@ describe("App ready state", () => {
     fireEvent.change(prompt, { target: { value: "make a drawing app" } });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
 
-    expect(start).toHaveBeenCalledWith("make a drawing app", "model-a");
+    expect(start).toHaveBeenCalledWith("make a drawing app", "model-a", undefined);
     expect(followUp).not.toHaveBeenCalled();
   });
 
@@ -98,7 +100,7 @@ describe("App ready state", () => {
     fireEvent.change(prompt, { target: { value: "add keyboard shortcuts" } });
     fireEvent.click(screen.getByRole("button", { name: /update app/i }));
 
-    expect(followUp).toHaveBeenCalledWith("abc", "add keyboard shortcuts", "model-a");
+    expect(followUp).toHaveBeenCalledWith("abc", "add keyboard shortcuts", "model-a", undefined);
     expect(start).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@ import {
   emptyRunStreams,
   extractValidationErrorFromLogs,
   failGeneration,
+  isYoloRun,
   type RunUsageMetrics
 } from "../src/hooks/useGeneration";
 
@@ -151,6 +152,19 @@ describe("extractValidationErrorFromLogs", () => {
     expect(extractValidationErrorFromLogs(["Run failed"], "lint still failing")).toBe(
       "lint still failing"
     );
+  });
+});
+
+describe("isYoloRun", () => {
+  it("detects YOLO mode from skip, run, and follow-up log lines", () => {
+    expect(isYoloRun(["YOLO mode: skipping validation harness (lint/tests)."])).toBe(true);
+    expect(isYoloRun(["YOLO mode enabled for this run — validation harness will be skipped."])).toBe(
+      true
+    );
+    expect(
+      isYoloRun(["YOLO mode enabled for this follow-up — validation harness will be skipped."])
+    ).toBe(true);
+    expect(isYoloRun(["All checks passed."])).toBe(false);
   });
 });
 

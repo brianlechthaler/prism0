@@ -220,12 +220,48 @@ async function validateProjectWithRetries(
   return { project: currentProject, idea: currentIdea, contextState: currentContextState };
 }
 
+export const YOLO_SKIP_VALIDATION_LOG =
+  "YOLO mode: skipping validation harness (lint/tests). Results may be unsafe or broken.";
+
+export type GenerationOptions = {
+  skipValidation?: boolean;
+};
+
+async function maybeValidateProject(
+  config: AppConfig,
+  store: RunStore,
+  tracker: RunUsageTracker,
+  runId: string,
+  idea: string,
+  project: GeneratedProject,
+  selectedModel: string | undefined,
+  contextState: RunContextState,
+  options: GenerationOptions = {}
+): Promise<{ project: GeneratedProject; idea: string; contextState: RunContextState }> {
+  if (options.skipValidation) {
+    store.appendLog(runId, `[${timestamp()}] ${YOLO_SKIP_VALIDATION_LOG}`);
+    return { project, idea, contextState };
+  }
+
+  return validateProjectWithRetries(
+    config,
+    store,
+    tracker,
+    runId,
+    idea,
+    project,
+    selectedModel,
+    contextState
+  );
+}
+
 export async function runGeneration(
   config: AppConfig,
   store: RunStore,
   runId: string,
   idea: string,
-  selectedModel?: string
+  selectedModel?: string,
+  options: GenerationOptions = {}
 ): Promise<void> {
   const tracker = new RunUsageTracker(config.contextWindowTokens);
   let lastKnownFiles: Record<string, string> | undefined;
@@ -233,6 +269,12 @@ export async function runGeneration(
     store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 run ${runId} started`);
     store.appendLog(runId, `[${timestamp()}] Idea received: "${idea}"`);
+    if (options.skipValidation) {
+      store.appendLog(
+        runId,
+        `[${timestamp()}] YOLO mode enabled for this run — validation harness will be skipped.`
+      );
+    }
     store.appendLog(
       runId,
       `[${timestamp()}] Using model ${selectedModel || config.openaiModel} at ${config.openaiBaseUrl}`
@@ -316,7 +358,7 @@ export async function runGeneration(
     );
     logParsedProjectFiles(store, runId, project.files);
 
-    const validated = await validateProjectWithRetries(
+    const validated = await maybeValidateProject(
       config,
       store,
       tracker,
@@ -324,12 +366,18 @@ export async function runGeneration(
       parsed.idea,
       project,
       selectedModel,
-      parsed.contextState
+      parsed.contextState,
+      options
     );
     project = validated.project;
     lastKnownFiles = project.files;
 
-    store.appendLog(runId, `[${timestamp()}] All checks passed. Publishing files to editor/preview.`);
+    store.appendLog(
+      runId,
+      options.skipValidation
+        ? `[${timestamp()}] Skipping validation (YOLO mode). Publishing files to editor/preview.`
+        : `[${timestamp()}] All checks passed. Publishing files to editor/preview.`
+    );
     store.complete(runId, project.files, project.summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -348,7 +396,8 @@ export async function runFollowUp(
   idea: string,
   project: GeneratedProject,
   followUpPrompt: string,
-  selectedModel?: string
+  selectedModel?: string,
+  options: GenerationOptions = {}
 ): Promise<void> {
   const tracker = new RunUsageTracker(config.contextWindowTokens);
   const augmentedIdea = `${idea}\n\nFollow-up request: ${followUpPrompt}`;
@@ -359,6 +408,12 @@ export async function runFollowUp(
     store.appendLog(runId, `[${timestamp()}] prism0 follow-up run ${runId} started`);
     store.appendLog(runId, `[${timestamp()}] Original app idea: "${idea}"`);
     store.appendLog(runId, `[${timestamp()}] Follow-up prompt: "${followUpPrompt}"`);
+    if (options.skipValidation) {
+      store.appendLog(
+        runId,
+        `[${timestamp()}] YOLO mode enabled for this follow-up — validation harness will be skipped.`
+      );
+    }
     store.appendLog(
       runId,
       `[${timestamp()}] Requesting updates from model ${selectedModel || config.openaiModel}…`
@@ -402,7 +457,7 @@ export async function runFollowUp(
     lastKnownFiles = updatedProject.files;
     logParsedProjectFiles(store, runId, updatedProject.files);
 
-    const validated = await validateProjectWithRetries(
+    const validated = await maybeValidateProject(
       config,
       store,
       tracker,
@@ -410,11 +465,17 @@ export async function runFollowUp(
       parsed.idea,
       updatedProject,
       selectedModel,
-      parsed.contextState
+      parsed.contextState,
+      options
     );
     updatedProject = validated.project;
 
-    store.appendLog(runId, `[${timestamp()}] Follow-up checks passed. Publishing updated files.`);
+    store.appendLog(
+      runId,
+      options.skipValidation
+        ? `[${timestamp()}] Follow-up validation skipped (YOLO mode). Publishing updated files.`
+        : `[${timestamp()}] Follow-up checks passed. Publishing updated files.`
+    );
     store.complete(runId, updatedProject.files, updatedProject.summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

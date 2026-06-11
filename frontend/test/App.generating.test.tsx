@@ -6,10 +6,12 @@ import { App } from "../src/ui/App";
 vi.mock("../src/hooks/useGeneration", () => ({
   emptyRunStreams: () => ({ thinking: "", content: "" }),
   extractValidationErrorFromLogs: () => "",
+  isYoloRun: () => false,
   useModelOptions: () => ({
     enabled: true,
     defaultModel: "model-a",
     models: ["model-a", "model-b"],
+    yoloModeEnabled: false,
     isLoading: false
   }),
   useGeneration: () => ({

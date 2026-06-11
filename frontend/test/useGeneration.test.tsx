@@ -69,6 +69,28 @@ describe("useGeneration", () => {
     });
   });
 
+  it("starts generation with YOLO mode enabled", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "r1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app", undefined, { yolo: true });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idea: "make app", yolo: true })
+    });
+  });
+
   it("starts repair runs for generated app runtime errors", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ runId: "repair-1" }), {
@@ -480,7 +502,7 @@ describe("useModelOptions", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify({ enabled: true, defaultModel: "model-a", models: ["model-a", "model-b"] }),
+          JSON.stringify({ enabled: true, defaultModel: "model-a", models: ["model-a", "model-b"], yoloModeEnabled: true }),
           {
             status: 200,
             headers: { "content-type": "application/json" }
@@ -498,6 +520,7 @@ describe("useModelOptions", () => {
       enabled: true,
       defaultModel: "model-a",
       models: ["model-a", "model-b"],
+      yoloModeEnabled: true,
       isLoading: false
     });
   });

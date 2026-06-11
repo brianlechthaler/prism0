@@ -11,6 +11,7 @@ describe("parseCliArgs", () => {
       "--model",
       "m",
       "--enable-model-picker",
+      "--enable-yolo-mode",
       "--host",
       "127.0.0.1",
       "--port",
@@ -21,6 +22,7 @@ describe("parseCliArgs", () => {
       baseUrl: "https://example.com/v1",
       model: "m",
       modelPickerEnabled: true,
+      yoloModeEnabled: true,
       host: "127.0.0.1",
       port: 9000
     });
@@ -37,6 +39,18 @@ describe("parseCliArgs", () => {
   it("allows the model picker to be explicitly disabled", () => {
     expect(parseCliArgs(["--enable-model-picker", "--disable-model-picker"])).toEqual({
       modelPickerEnabled: false
+    });
+  });
+
+  it("allows YOLO mode to be explicitly disabled", () => {
+    expect(parseCliArgs(["--enable-yolo-mode", "--disable-yolo-mode"])).toEqual({
+      yoloModeEnabled: false
+    });
+  });
+
+  it("allows YOLO mode to be disabled without a prior enable flag", () => {
+    expect(parseCliArgs(["--disable-yolo-mode"])).toEqual({
+      yoloModeEnabled: false
     });
   });
 });
