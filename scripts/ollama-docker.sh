@@ -9,7 +9,7 @@ readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-prism0-ollama}"
 readonly PRISM0_CONTAINER="${PRISM0_CONTAINER:-prism0-app}"
 readonly OLLAMA_VOLUME="${OLLAMA_VOLUME:-prism0-ollama-data}"
 readonly OLLAMA_IMAGE="${OLLAMA_IMAGE:-ollama/ollama:latest}"
-readonly PRISM0_IMAGE="${PRISM0_IMAGE:-prism0:local}"
+readonly PRISM0_IMAGE="${PRISM0_IMAGE:-ghcr.io/brianlechthaler/prism0:latest}"
 # qwen2.5-coder:32b (default Ollama quant) uses ~19-20 GiB VRAM — a good fit for 24 GiB GPUs.
 readonly OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5-coder:32b}"
 OLLAMA_GPU="${OLLAMA_GPU:-0}"
@@ -27,7 +27,7 @@ Run prism0 against Ollama in Docker. The web UI is published on the host at
 http://localhost:8787 by default. GPU acceleration is optional and off by default.
 
 Commands:
-  start   Build the prism0 image if needed, start Ollama, pull the model, start prism0.
+  start   Pull the prism0 image, start Ollama, pull the model, start prism0.
   stop    Stop and remove the prism0 and Ollama containers (keeps the Ollama model volume).
   status  Show container status and recent health.
   logs    Follow logs from both containers (optional: ollama|prism0|all).
@@ -41,10 +41,11 @@ Environment overrides:
   OLLAMA_ENABLE_GPU       Set to 1 to enable GPU passthrough (same as OLLAMA_GPU=all)
   PRISM0_PORT             Host port for the prism0 web UI (default: 8787)
   OLLAMA_PORT             Host port for the Ollama API (default: 11434)
-  PRISM0_IMAGE            Local prism0 image tag (default: prism0:local)
+  PRISM0_IMAGE            prism0 image to run (default: ghcr.io/brianlechthaler/prism0:latest)
   REQUEST_TIMEOUT_MS      Upstream timeout for slow local models (default: 600000)
   OPENAI_CONTEXT_WINDOW   UI context bar size (default: 32768)
-  REBUILD=1               Force rebuild of the prism0 image on start
+  PRISM0_BUILD=1          Build PRISM0_IMAGE from the local repo instead of pulling
+  SKIP_IMAGE_PULL=1       Skip "docker pull" for the prism0 image (use a preloaded tag)
   SKIP_MODEL_PULL=1       Skip "ollama pull" if the model is already cached
 
 The default model targets a 24 GiB GPU (for example RTX 3090/4090). Smaller cards may
@@ -157,14 +158,25 @@ pull_model() {
   docker exec "$OLLAMA_CONTAINER" ollama pull "$OLLAMA_MODEL"
 }
 
-build_prism0_image() {
-  if [[ "${REBUILD:-0}" != "1" ]] && docker image inspect "$PRISM0_IMAGE" >/dev/null 2>&1; then
-    echo "Using existing prism0 image: $PRISM0_IMAGE"
+ensure_prism0_image() {
+  if [[ "${PRISM0_BUILD:-0}" == "1" ]]; then
+    echo "Building prism0 image from local repo: $PRISM0_IMAGE"
+    docker build -t "$PRISM0_IMAGE" .
     return 0
   fi
 
-  echo "Building prism0 image: $PRISM0_IMAGE"
-  docker build -t "$PRISM0_IMAGE" .
+  if [[ "${SKIP_IMAGE_PULL:-0}" == "1" ]]; then
+    if docker image inspect "$PRISM0_IMAGE" >/dev/null 2>&1; then
+      echo "Using existing prism0 image: $PRISM0_IMAGE (SKIP_IMAGE_PULL=1)"
+      return 0
+    fi
+
+    echo "prism0 image not found locally: $PRISM0_IMAGE (SKIP_IMAGE_PULL=1)" >&2
+    exit 1
+  fi
+
+  echo "Pulling latest prism0 image: $PRISM0_IMAGE"
+  docker pull "$PRISM0_IMAGE"
 }
 
 start_ollama() {
@@ -211,7 +223,7 @@ start_prism0() {
   fi
 
   remove_container_if_exists "$PRISM0_CONTAINER"
-  build_prism0_image
+  ensure_prism0_image
 
   echo "Starting prism0 container: $PRISM0_CONTAINER"
   docker run -d \

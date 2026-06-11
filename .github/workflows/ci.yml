@@ -162,6 +162,7 @@ jobs:
       - name: Smoke test CPU-only Ollama stack
         run: |
           PRISM0_IMAGE=prism0:ci \
+          SKIP_IMAGE_PULL=1 \
           OLLAMA_GPU=0 \
           SKIP_MODEL_PULL=1 \
           ./scripts/ollama-docker.sh start
