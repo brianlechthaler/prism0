@@ -1328,6 +1328,59 @@ describe("run control", () => {
     expect(store.get(validationRun.id)?.error).toContain("Missing model response for parse stage");
   });
 
+  it("fails when resuming from validate without saved project", async () => {
+    const store = new RunStore();
+    const run = store.create("missing project");
+    store.markPaused(run.id, {
+      kind: "generate",
+      stage: "validate",
+      idea: run.idea,
+      contextState: {}
+    });
+    store.attachAbortController(run.id);
+    await resumeRun(config, store, run.id);
+    expect(store.get(run.id)?.error).toContain("Missing parsed project for validation stage");
+
+    const followUpRun = store.create("missing project follow-up");
+    store.markPaused(followUpRun.id, {
+      kind: "follow_up",
+      stage: "validate",
+      idea: `${followUpRun.idea}\n\nFollow-up request: add score`,
+      contextState: {},
+      sourceProject: { summary: "done", files: validPayload.files },
+      followUpPrompt: "add score"
+    });
+    store.attachAbortController(followUpRun.id);
+    await resumeRun(config, store, followUpRun.id);
+    expect(store.get(followUpRun.id)?.error).toContain("Missing parsed project for validation stage");
+
+    const runtimeRun = store.create("missing project runtime");
+    store.markPaused(runtimeRun.id, {
+      kind: "runtime_repair",
+      stage: "validate",
+      idea: runtimeRun.idea,
+      contextState: {},
+      sourceProject: { summary: "done", files: validPayload.files },
+      runtimeError: "crash"
+    });
+    store.attachAbortController(runtimeRun.id);
+    await resumeRun(config, store, runtimeRun.id);
+    expect(store.get(runtimeRun.id)?.error).toContain("Missing parsed project for validation stage");
+
+    const validationRun = store.create("missing project validation");
+    store.markPaused(validationRun.id, {
+      kind: "validation_repair",
+      stage: "validate",
+      idea: validationRun.idea,
+      contextState: {},
+      sourceProject: { summary: "done", files: validPayload.files },
+      validationError: "lint"
+    });
+    store.attachAbortController(validationRun.id);
+    await resumeRun(config, store, validationRun.id);
+    expect(store.get(validationRun.id)?.error).toContain("Missing parsed project for validation stage");
+  });
+
   it("keeps the checkpoint unchanged when pausing without streamed content", async () => {
     vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
       async (_config, _idea, _handlers, options) => {

@@ -497,6 +497,9 @@ async function executeGeneratePipeline(
     logParsedProjectFiles(store, runId, project.files);
   }
 
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
   checkpoint.stage = "validate";
   const validated = await maybeValidateProject(
     config,
@@ -657,6 +660,9 @@ async function executeFollowUpPipeline(
     logParsedProjectFiles(store, runId, project.files);
   }
 
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
   checkpoint.stage = "validate";
   const validated = await maybeValidateProject(
     config,
@@ -800,6 +806,9 @@ async function executeRuntimeRepairPipeline(
     logParsedProjectFiles(store, runId, project.files);
   }
 
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
   checkpoint.stage = "validate";
   const validated = await validateProjectWithRetries(
     config,
@@ -945,6 +954,9 @@ async function executeValidationRepairPipeline(
     logParsedProjectFiles(store, runId, project.files);
   }
 
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
   checkpoint.stage = "validate";
   const validated = await validateProjectWithRetries(
     config,
