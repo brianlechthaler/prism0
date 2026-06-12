@@ -179,6 +179,74 @@ describe("registerRoutes", () => {
     });
   });
 
+  it("stops, pauses, and resumes active runs", async () => {
+    const resumeSpy = vi
+      .spyOn(await import("../src/generator.js"), "resumeRun")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+    const run = store.create("make app");
+    store.setStatus(run.id, "running");
+    store.attachAbortController(run.id);
+
+    await withServer(app, async (port) => {
+      const stopRes = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/stop`, {
+        method: "POST"
+      });
+      expect(stopRes.status).toBe(200);
+      expect(await stopRes.json()).toEqual({ runId: run.id, status: "stopping" });
+
+      const pauseRun = store.create("pause");
+      store.setStatus(pauseRun.id, "running");
+      store.attachAbortController(pauseRun.id);
+      const pauseRes = await fetch(`http://127.0.0.1:${port}/api/generate/${pauseRun.id}/pause`, {
+        method: "POST"
+      });
+      expect(pauseRes.status).toBe(200);
+
+      store.markPaused(pauseRun.id, {
+        kind: "generate",
+        stage: "llm",
+        idea: "pause",
+        contextState: {}
+      });
+      const resumeRes = await fetch(`http://127.0.0.1:${port}/api/generate/${pauseRun.id}/resume`, {
+        method: "POST"
+      });
+      expect(resumeRes.status).toBe(200);
+      expect(resumeSpy).toHaveBeenCalled();
+    });
+  });
+
+  it("returns control errors for inactive or missing runs", async () => {
+    const { app, store } = createTestApp();
+    const doneRun = store.create("done");
+    store.complete(doneRun.id, { "index.html": "<html/>" });
+
+    await withServer(app, async (port) => {
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/stop`, { method: "POST" })).status
+      ).toBe(404);
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/pause`, { method: "POST" })).status
+      ).toBe(404);
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/resume`, { method: "POST" })).status
+      ).toBe(404);
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/stop`, { method: "POST" }))
+          .status
+      ).toBe(409);
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/pause`, { method: "POST" }))
+          .status
+      ).toBe(409);
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/resume`, { method: "POST" }))
+          .status
+      ).toBe(409);
+    });
+  });
+
   it("starts generation asynchronously with the selected model", async () => {
     const generationSpy = vi
       .spyOn(await import("../src/generator.js"), "runGeneration")

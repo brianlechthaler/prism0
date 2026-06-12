@@ -2,7 +2,13 @@ import type { Express, Request, RequestHandler } from "express";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
-import { runFollowUp, runGeneration, runRuntimeRepair, runValidationRepair } from "./generator.js";
+import {
+  resumeRun,
+  runFollowUp,
+  runGeneration,
+  runRuntimeRepair,
+  runValidationRepair
+} from "./generator.js";
 import type { RunStore } from "./runStore.js";
 import type { GenerationRun, GeneratedProject } from "./types.js";
 
@@ -60,6 +66,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     }
 
     const run = store.create(parsed.data.idea);
+    store.attachAbortController(run.id);
     void runGeneration(config, store, run.id, parsed.data.idea, selectedModel, {
       skipValidation
     });
@@ -98,6 +105,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
 
     const followUpIdea = `${sourceRun.idea}\n\nFollow-up request: ${parsed.data.prompt}`;
     const run = store.create(followUpIdea);
+    store.attachAbortController(run.id);
     void runFollowUp(
       config,
       store,
@@ -136,6 +144,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     }
 
     const run = store.create(sourceRun.idea);
+    store.attachAbortController(run.id);
     void runRuntimeRepair(
       config,
       store,
@@ -173,6 +182,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     }
 
     const run = store.create(sourceRun.idea);
+    store.attachAbortController(run.id);
     void runValidationRepair(
       config,
       store,
@@ -183,6 +193,55 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       selectedModel
     );
     res.json({ runId: run.id });
+  });
+
+  app.post("/api/generate/:runId/stop", (req, res) => {
+    const runId = routeParam(req.params.runId);
+    const run = store.get(runId);
+    if (!run) {
+      res.status(404).send("Run not found");
+      return;
+    }
+
+    if (!store.stop(runId)) {
+      res.status(409).send("Run is not active");
+      return;
+    }
+
+    res.json({ runId, status: "stopping" });
+  });
+
+  app.post("/api/generate/:runId/pause", (req, res) => {
+    const runId = routeParam(req.params.runId);
+    const run = store.get(runId);
+    if (!run) {
+      res.status(404).send("Run not found");
+      return;
+    }
+
+    if (!store.pause(runId)) {
+      res.status(409).send("Run is not active");
+      return;
+    }
+
+    res.json({ runId, status: "pausing" });
+  });
+
+  app.post("/api/generate/:runId/resume", (req, res) => {
+    const runId = routeParam(req.params.runId);
+    const run = store.get(runId);
+    if (!run) {
+      res.status(404).send("Run not found");
+      return;
+    }
+
+    if (!store.isResumable(runId)) {
+      res.status(409).send("Run is not paused");
+      return;
+    }
+
+    void resumeRun(config, store, runId);
+    res.json({ runId, status: "resuming" });
   });
 
   app.get("/api/generate/:runId/events", (req, res) => {
@@ -202,7 +261,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
 
     const unsubscribe = store.subscribe(runId, (message) => {
       res.write(`data: ${JSON.stringify(message)}\n\n`);
-      if (message.type === "done" || message.type === "error") {
+      if (message.type === "done" || message.type === "error" || message.type === "stopped") {
         res.end();
       }
     });

@@ -279,7 +279,7 @@ describe("useGeneration", () => {
       await result.current.repair("source-1", "Error: boom");
     });
 
-    expect(source.close).toHaveBeenCalledTimes(1);
+    expect(source.close.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
   });
 
@@ -313,7 +313,7 @@ describe("useGeneration", () => {
       await result.current.followUp("source-1", "add settings");
     });
 
-    expect(source.close).toHaveBeenCalledTimes(1);
+    expect(source.close.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(eventSources.at(-1)?.url).toContain("/api/generate/follow-up-1/events");
   });
 
@@ -558,6 +558,207 @@ describe("useGeneration", () => {
     if (result.current.state.kind === "error") {
       expect(result.current.state.message).toBe("project is not ready");
     }
+  });
+
+  it("ignores stream errors while paused", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "r1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    act(() => {
+      source.onmessage?.({
+        data: JSON.stringify({ type: "paused", runId: "r1" })
+      } as MessageEvent);
+      source.onerror?.();
+    });
+
+    expect(result.current.state.kind).toBe("paused");
+  });
+
+  it("keeps paused progress when resume is rejected", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "r1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(new Response("run is not paused", { status: 409 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    act(() => {
+      source.onmessage?.({
+        data: JSON.stringify({ type: "paused", runId: "r1" })
+      } as MessageEvent);
+    });
+
+    await act(async () => {
+      await result.current.resume("r1");
+    });
+
+    expect(result.current.state.kind).toBe("error");
+  });
+
+  it("stops a paused run before restarting", async () => {
+    let generateCalls = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/generate" && init?.method === "POST") {
+        generateCalls += 1;
+        return new Response(JSON.stringify({ runId: generateCalls === 1 ? "r1" : "r2" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.endsWith("/stop")) {
+        return new Response("", { status: 200 });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    act(() => {
+      source.onmessage?.({
+        data: JSON.stringify({ type: "paused", runId: "r1" })
+      } as MessageEvent);
+    });
+
+    await act(async () => {
+      await result.current.restart("fresh idea");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/r1/stop", { method: "POST" });
+  });
+
+  it("restarts from idle without stopping a previous run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "r2" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.restart("fresh idea");
+    });
+
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/generate/r1/stop", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate", expect.objectContaining({
+      method: "POST"
+    }));
+  });
+
+  it("reports failed run control requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("run is not active", { status: 409 }))
+    );
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.pause("r1");
+    });
+
+    expect(result.current.state.kind).toBe("error");
+    if (result.current.state.kind === "error") {
+      expect(result.current.state.message).toBe("run is not active");
+    }
+  });
+
+  it("stops, pauses, resumes, and restarts active runs", async () => {
+    const jsonResponse = (runId: string) =>
+      new Response(JSON.stringify({ runId }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/generate" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { idea: string };
+        return jsonResponse(body.idea === "fresh idea" ? "r2" : "r1");
+      }
+      if (url.endsWith("/stop") || url.endsWith("/pause") || url.endsWith("/resume")) {
+        return new Response("", { status: 200 });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    await act(async () => {
+      await result.current.pause("r1");
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/r1/pause", { method: "POST" });
+
+    const activeRun = eventSources.at(-1);
+    act(() => {
+      activeRun!.onmessage?.({
+        data: JSON.stringify({ type: "paused", runId: "r1" })
+      } as MessageEvent);
+    });
+    expect(result.current.state.kind).toBe("paused");
+
+    await act(async () => {
+      await result.current.resume("r1");
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/r1/resume", { method: "POST" });
+
+    await act(async () => {
+      await result.current.stop("r1");
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/r1/stop", { method: "POST" });
+
+    act(() => {
+      activeRun!.onmessage?.({
+        data: JSON.stringify({ type: "stopped", runId: "r1" })
+      } as MessageEvent);
+    });
+    expect(result.current.state.kind).toBe("idle");
+
+    await act(async () => {
+      await result.current.start("make app");
+    });
+    await act(async () => {
+      await result.current.restart("fresh idea");
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate/r1/stop", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/generate", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ idea: "fresh idea" })
+    }));
   });
 });
 

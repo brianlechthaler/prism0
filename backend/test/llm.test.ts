@@ -398,4 +398,17 @@ describe("llm", () => {
     expect(result).toContain("compressed");
     expect(createMock.mock.calls[0]?.[0]?.model).toBe("m");
   });
+
+  it("aborts streaming when the request signal is triggered", async () => {
+    async function* mockStream() {
+      yield { choices: [{ delta: { content: "hel" } }] };
+      await new Promise(() => {});
+    }
+    createMock.mockResolvedValue(mockStream());
+
+    const controller = new AbortController();
+    const pending = generateProjectFromIdea(config, "make app", {}, { signal: controller.signal });
+    controller.abort("stop");
+    await expect(pending).rejects.toThrow(/stopped by user/);
+  });
 });

@@ -44,6 +44,14 @@ export type GenerationState =
       usage?: RunUsageMetrics;
     }
   | {
+      kind: "paused";
+      runId: string;
+      logs: string[];
+      streams: RunStreams;
+      usage?: RunUsageMetrics;
+      files?: Record<string, string>;
+    }
+  | {
       kind: "ready";
       runId: string;
       logs: string[];
@@ -73,7 +81,9 @@ type SsePayload =
       runId?: string;
       files?: Record<string, string>;
       repairable?: boolean;
-    };
+    }
+  | { type: "stopped"; runId: string }
+  | { type: "paused"; runId: string };
 
 export type ModelOptionsState = {
   enabled: boolean;
@@ -109,7 +119,12 @@ function requestBodyWithModel<T extends Record<string, unknown>>(
 }
 
 export function appendLogLine(state: GenerationState, line: string): GenerationState {
-  if (state.kind === "generating" || state.kind === "ready" || state.kind === "error") {
+  if (
+    state.kind === "generating" ||
+    state.kind === "paused" ||
+    state.kind === "ready" ||
+    state.kind === "error"
+  ) {
     return { ...state, logs: [...state.logs, line] };
   }
   return state;
@@ -120,7 +135,12 @@ export function appendStreamChunk(
   channel: StreamChannel,
   chunk: string
 ): GenerationState {
-  if (state.kind === "generating" || state.kind === "ready" || state.kind === "error") {
+  if (
+    state.kind === "generating" ||
+    state.kind === "paused" ||
+    state.kind === "ready" ||
+    state.kind === "error"
+  ) {
     return {
       ...state,
       streams: {
@@ -185,7 +205,12 @@ export function applyUsageUpdate(
   state: GenerationState,
   usage: RunUsageMetrics
 ): GenerationState {
-  if (state.kind === "generating" || state.kind === "ready" || state.kind === "error") {
+  if (
+    state.kind === "generating" ||
+    state.kind === "paused" ||
+    state.kind === "ready" ||
+    state.kind === "error"
+  ) {
     return { ...state, usage };
   }
   return state;
@@ -263,15 +288,38 @@ export function useModelOptions() {
   return modelOptions;
 }
 
+export function pauseGenerationState(
+  state: GenerationState,
+  runId: string
+): Extract<GenerationState, { kind: "paused" }> {
+  const logs = "logs" in state ? state.logs : [];
+  const streams = "streams" in state ? state.streams : emptyRunStreams();
+  const usage = "usage" in state ? state.usage : undefined;
+  const files = state.kind === "error" ? state.files : undefined;
+  return {
+    kind: "paused",
+    runId,
+    logs: [...logs, "Paused."],
+    streams,
+    usage,
+    ...(files ? { files } : {})
+  };
+}
+
 export function useGeneration() {
   const [state, setState] = useState<GenerationState>({ kind: "idle" });
+  const stateRef = useRef(state);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const lastSubmittedIdeaRef = useRef<string>("");
+
+  stateRef.current = state;
 
   useEffect(() => {
     return () => eventSourceRef.current?.close();
   }, []);
 
   const connectToRun = useCallback((runId: string) => {
+    eventSourceRef.current?.close();
     const es = new EventSource(`/api/generate/${encodeURIComponent(runId)}/events`);
     eventSourceRef.current = es;
 
@@ -287,6 +335,11 @@ export function useGeneration() {
       } else if (msg.type === "done") {
         setState((s) => completeGeneration(s, runId, msg.files));
         es.close();
+      } else if (msg.type === "stopped") {
+        setState({ kind: "idle" });
+        es.close();
+      } else if (msg.type === "paused") {
+        setState((s) => pauseGenerationState(s, runId));
       } else {
         setState((s) =>
           failGeneration(s, msg.message, {
@@ -300,15 +353,59 @@ export function useGeneration() {
     };
 
     es.onerror = () => {
-      setState((s) =>
-        failGeneration(s, "Lost connection to live progress. Check backend logs and retry.")
-      );
+      setState((s) => {
+        if (s.kind === "paused") return s;
+        return failGeneration(s, "Lost connection to live progress. Check backend logs and retry.");
+      });
       es.close();
     };
   }, []);
 
+  const requestRunControl = useCallback(async (runId: string, action: "stop" | "pause" | "resume") => {
+    const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/${action}`, {
+      method: "POST"
+    });
+    if (!res.ok) {
+      const message = await res.text();
+      setState((current) => failGeneration(current, message, { runId }));
+    }
+    return res.ok;
+  }, []);
+
+  const stop = useCallback(
+    async (runId: string) => {
+      await requestRunControl(runId, "stop");
+      eventSourceRef.current?.close();
+    },
+    [requestRunControl]
+  );
+
+  const pause = useCallback(
+    async (runId: string) => {
+      await requestRunControl(runId, "pause");
+    },
+    [requestRunControl]
+  );
+
+  const resume = useCallback(
+    async (runId: string) => {
+      setState((current) =>
+        beginGeneratingState(
+          current,
+          { runId, logs: ["Resuming generation…"] },
+          { preserveProgress: true }
+        )
+      );
+      const ok = await requestRunControl(runId, "resume");
+      if (!ok) return;
+      connectToRun(runId);
+    },
+    [connectToRun, requestRunControl]
+  );
+
   const start = useCallback(
     async (idea: string, model?: string, options?: GenerationRequestOptions) => {
+      lastSubmittedIdeaRef.current = idea;
       eventSourceRef.current?.close();
       setState(beginGeneratingState({ kind: "idle" }, { runId: "", logs: ["Starting…"] }));
 
@@ -333,6 +430,19 @@ export function useGeneration() {
       connectToRun(runId);
     },
     [connectToRun]
+  );
+
+  const restart = useCallback(
+    async (idea: string, model?: string, options?: GenerationRequestOptions) => {
+      const current = stateRef.current;
+      const activeRunId = "runId" in current ? current.runId : undefined;
+      if (activeRunId && (current.kind === "generating" || current.kind === "paused")) {
+        await stop(activeRunId);
+      }
+
+      await start(idea, model, options);
+    },
+    [start, stop]
   );
 
   const repair = useCallback(
@@ -446,5 +556,15 @@ export function useGeneration() {
     [connectToRun]
   );
 
-  return { state, start, repair, repairValidation, followUp };
+  return {
+    state,
+    start,
+    stop,
+    pause,
+    resume,
+    restart,
+    repair,
+    repairValidation,
+    followUp
+  };
 }
