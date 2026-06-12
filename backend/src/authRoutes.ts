@@ -56,6 +56,7 @@ export type AuthRoutesConfig = Pick<
   | "authRateLimitMax"
   | "authLoginMaxFailures"
   | "authLoginLockoutMs"
+  | "authEmailEnabled"
 >;
 
 export function registerAuthRoutes(
@@ -73,6 +74,10 @@ export function registerAuthRoutes(
   const loginFailures =
     deps.loginFailures ??
     new LoginFailureTracker(config.authLoginMaxFailures, config.authLoginLockoutMs);
+
+  app.get("/api/auth/features", (_req, res) => {
+    res.json({ emailEnabled: config.authEmailEnabled });
+  });
 
   app.get("/api/auth/me", (req, res) => {
     const user = (req as AuthenticatedRequest).user;

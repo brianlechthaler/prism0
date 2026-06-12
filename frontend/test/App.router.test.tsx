@@ -42,14 +42,20 @@ function renderApp(route = "/") {
   return render(<App />);
 }
 
+function defaultAuthMock(overrides: Record<string, unknown> = {}) {
+  return {
+    user: null,
+    features: { emailEnabled: false },
+    isLoading: false,
+    refresh: vi.fn(),
+    ...overrides
+  };
+}
+
 describe("App router", () => {
   beforeEach(() => {
     apiFetchMock.mockImplementation(() => jsonResponse({ authenticated: false }));
-    useAuthMock.mockReturnValue({
-      user: null,
-      isLoading: false,
-      refresh: vi.fn()
-    });
+    useAuthMock.mockReturnValue(defaultAuthMock());
   });
 
   it("renders the splash page at the root route", () => {
@@ -64,55 +70,70 @@ describe("App router", () => {
 
     renderApp("/register");
     expect(screen.getByRole("heading", { name: /create account/i })).toBeInTheDocument();
+  });
+
+  it("redirects verify email to login when email is disabled", () => {
+    renderApp("/verify-email");
+    expect(screen.getAllByRole("heading", { name: /log in/i }).length).toBeGreaterThan(0);
+  });
+
+  it("renders verify email when the feature is enabled", () => {
+    useAuthMock.mockReturnValue(
+      defaultAuthMock({
+        features: { emailEnabled: true },
+        verifyEmail: vi.fn(),
+        resendVerification: vi.fn()
+      })
+    );
 
     renderApp("/verify-email");
     expect(screen.getByRole("heading", { name: /verify your email/i })).toBeInTheDocument();
   });
 
   it("protects dashboard and generator routes", async () => {
-    useAuthMock.mockReturnValue({
-      user: createMockUser({ emailVerified: true }),
-      isLoading: false,
-      refresh: vi.fn(),
-      loadDashboard: vi.fn().mockResolvedValue({
+    useAuthMock.mockReturnValue(
+      defaultAuthMock({
         user: createMockUser({ emailVerified: true }),
-        projects: [],
-        history: [],
-        tokenSummary: {
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-          generationCount: 0
-        }
-      }),
-      logout: vi.fn(),
-      updateProfile: vi.fn(),
-      changeEmail: vi.fn(),
-      changePassword: vi.fn(),
-      deleteAccount: vi.fn()
-    });
+        loadDashboard: vi.fn().mockResolvedValue({
+          user: createMockUser({ emailVerified: true }),
+          projects: [],
+          history: [],
+          tokenSummary: {
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            generationCount: 0
+          }
+        }),
+        logout: vi.fn(),
+        updateProfile: vi.fn(),
+        changeEmail: vi.fn(),
+        changePassword: vi.fn(),
+        deleteAccount: vi.fn()
+      })
+    );
 
     renderApp("/dashboard");
     expect(await screen.findByText(/welcome, test user/i)).toBeInTheDocument();
   });
 
   it("renders the generator route for verified users", async () => {
-    useAuthMock.mockReturnValue({
-      user: createMockUser({ emailVerified: true }),
-      isLoading: false,
-      refresh: vi.fn()
-    });
+    useAuthMock.mockReturnValue(
+      defaultAuthMock({
+        user: createMockUser({ emailVerified: true })
+      })
+    );
 
     renderApp("/app");
     expect(await screen.findByTestId("generator-app")).toHaveTextContent("new");
   });
 
   it("renders the generator route with a project id", async () => {
-    useAuthMock.mockReturnValue({
-      user: createMockUser({ emailVerified: true }),
-      isLoading: false,
-      refresh: vi.fn()
-    });
+    useAuthMock.mockReturnValue(
+      defaultAuthMock({
+        user: createMockUser({ emailVerified: true })
+      })
+    );
 
     renderApp("/app/proj-123");
     expect(await screen.findByTestId("generator-app")).toHaveTextContent("proj-123");

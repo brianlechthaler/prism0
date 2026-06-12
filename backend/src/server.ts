@@ -34,7 +34,8 @@ export function createServices(config: AppConfig): AppServices {
     sendEmail,
     appBaseUrl: config.appBaseUrl,
     sessionTtlMs: config.sessionTtlMs,
-    exposeVerificationToken: config.authExposeVerificationToken
+    exposeVerificationToken: config.authExposeVerificationToken,
+    emailEnabled: config.authEmailEnabled
   });
   const projects = new ProjectStore({ db, appBaseUrl: config.appBaseUrl });
   const history = new GenerationHistoryService(db);

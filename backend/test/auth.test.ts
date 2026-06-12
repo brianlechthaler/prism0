@@ -4,6 +4,7 @@ import { openDatabase } from "../src/db.js";
 
 function createAuth(options?: {
   exposeVerificationToken?: boolean;
+  emailEnabled?: boolean;
   now?: () => number;
   sendEmail?: () => Promise<void>;
 }) {
@@ -15,12 +16,45 @@ function createAuth(options?: {
     appBaseUrl: "http://127.0.0.1:8787",
     sessionTtlMs: 60_000,
     exposeVerificationToken: options?.exposeVerificationToken ?? true,
+    emailEnabled: options?.emailEnabled ?? true,
     now: options?.now
   });
   return { auth, db, sendEmail };
 }
 
 describe("AuthService", () => {
+  it("registers users without email when email is disabled", () => {
+    const { auth, sendEmail } = createAuth({ emailEnabled: false });
+    const result = auth.register({
+      username: "disabled_email",
+      password: "password123"
+    });
+
+    expect(result.user.email).toBeNull();
+    expect(result.user.emailVerified).toBe(true);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(auth.login("disabled_email", "password123").user.username).toBe("disabled_email");
+  });
+
+  it("rejects email registration when email is disabled", () => {
+    const { auth } = createAuth({ emailEnabled: false });
+    expect(() =>
+      auth.register({
+        username: "disabled_email2",
+        email: "blocked@example.com",
+        password: "password123"
+      })
+    ).toThrow(/Email is not enabled/);
+  });
+
+  it("rejects email-only auth actions when email is disabled", () => {
+    const { auth } = createAuth({ emailEnabled: false });
+    auth.register({ username: "disabled_actions", password: "password123" });
+    expect(() => auth.verifyEmail("token")).toThrow(/Email is not enabled/);
+    expect(() => auth.resendVerification("disabled_actions", "password123")).toThrow(/Email is not enabled/);
+    expect(() => auth.changeEmail("missing", "new@example.com", "password123")).toThrow(/Email is not enabled/);
+  });
+
   it("registers users without email and allows immediate login", () => {
     const { auth, sendEmail } = createAuth();
     const result = auth.register({
@@ -295,7 +329,8 @@ describe("AuthService", () => {
       sendEmail: async () => {},
       appBaseUrl: "http://127.0.0.1:8787",
       sessionTtlMs: 60_000,
-      exposeVerificationToken: true
+      exposeVerificationToken: true,
+      emailEnabled: true
     });
     const { verificationToken, user } = visible.register({
       username: "hidden_change",
@@ -309,7 +344,8 @@ describe("AuthService", () => {
       sendEmail: async () => {},
       appBaseUrl: "http://127.0.0.1:8787",
       sessionTtlMs: 60_000,
-      exposeVerificationToken: false
+      exposeVerificationToken: false,
+      emailEnabled: true
     });
     const updated = hidden.changeEmail(user.id, "changed@example.com", "password123");
     expect(updated.email).toBe("changed@example.com");

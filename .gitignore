@@ -5,3 +5,7 @@ coverage/
 .env
 backend/runs/
 backend/validation-harness/runs/
+backend/data/
+backend/prism0.db
+*.db-shm
+*.db-wal

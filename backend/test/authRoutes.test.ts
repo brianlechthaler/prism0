@@ -71,6 +71,29 @@ describe("authRoutes", () => {
     });
   });
 
+  it("returns auth feature flags", async () => {
+    const { app } = createTestApp();
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/auth/features`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ emailEnabled: true });
+    });
+  });
+
+  it("rejects email registration when email is disabled", async () => {
+    const config = { ...testConfig, authEmailEnabled: false };
+    const { app } = createTestApp(new RunStore(), config);
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "blocked_email", email: "blocked@example.com", password: "password123" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("Email is not enabled");
+    });
+  });
+
   it("registers accounts without email and allows immediate login", async () => {
     const { app } = createTestApp();
     await withServer(app, async (port) => {
@@ -188,6 +211,7 @@ describe("authRoutes", () => {
       appBaseUrl: testConfig.appBaseUrl,
       sessionTtlMs: testConfig.sessionTtlMs,
       exposeVerificationToken: true,
+      emailEnabled: true,
       now: () => now
     });
     const services = {
@@ -428,7 +452,8 @@ describe("authRoutes", () => {
       sendEmail: async () => {},
       appBaseUrl: testConfig.appBaseUrl,
       sessionTtlMs: testConfig.sessionTtlMs,
-      exposeVerificationToken: true
+      exposeVerificationToken: true,
+      emailEnabled: true
     });
     const services = {
       auth,

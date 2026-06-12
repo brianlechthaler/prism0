@@ -29,6 +29,7 @@ describe("loadConfig", () => {
     expect(cfg.authRateLimitMax).toBe(20);
     expect(cfg.authLoginMaxFailures).toBe(5);
     expect(cfg.authLoginLockoutMs).toBe(15 * 60 * 1000);
+    expect(cfg.authEmailEnabled).toBe(false);
   });
 
   it("accepts request timeout override from env", () => {
@@ -144,6 +145,14 @@ describe("loadConfig", () => {
     } finally {
       process.env.NODE_ENV = previous;
     }
+  });
+
+  it("accepts auth email enabled override from env", () => {
+    const cfg = loadConfig({
+      OPENAI_API_KEY: "k",
+      AUTH_EMAIL_ENABLED: "true"
+    });
+    expect(cfg.authEmailEnabled).toBe(true);
   });
 
   it("accepts auth rate-limit overrides from env", () => {

@@ -20,7 +20,8 @@ function createAuthService(sessionTtlMs = 60_000) {
     sendEmail: async () => {},
     appBaseUrl: "http://127.0.0.1:8787",
     sessionTtlMs,
-    exposeVerificationToken: true
+    exposeVerificationToken: true,
+    emailEnabled: true
   });
   return auth;
 }

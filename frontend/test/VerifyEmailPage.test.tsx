@@ -6,11 +6,14 @@ import { VerifyEmailPage } from "../src/ui/VerifyEmailPage";
 
 const verifyEmailMock = vi.hoisted(() => vi.fn());
 const resendVerificationMock = vi.hoisted(() => vi.fn());
+const featuresMock = vi.hoisted(() => ({ emailEnabled: true }));
 
 vi.mock("../src/hooks/useAuth", () => ({
   useAuth: () => ({
     verifyEmail: verifyEmailMock,
-    resendVerification: resendVerificationMock
+    resendVerification: resendVerificationMock,
+    features: featuresMock,
+    isLoading: false
   })
 }));
 
@@ -28,6 +31,22 @@ describe("VerifyEmailPage", () => {
   beforeEach(() => {
     verifyEmailMock.mockReset();
     resendVerificationMock.mockReset();
+    featuresMock.emailEnabled = true;
+  });
+
+  it("redirects to login when email is disabled", () => {
+    featuresMock.emailEnabled = false;
+
+    render(
+      <MemoryRouter initialEntries={["/verify-email"]}>
+        <Routes>
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/login" element={<div>login page</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("login page")).toBeInTheDocument();
   });
 
   it("verifies email automatically when a hash token is present", async () => {

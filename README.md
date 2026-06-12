@@ -44,7 +44,7 @@ Type an idea (e.g. “make a tetris game”) and `prism0` generates a small brow
 
 ### Accounts, dashboard, and hosting
 
-- **User accounts** — Register with username and password. Email is optional; when provided, verification is required before login.
+- **User accounts** — Register with username and password. Email verification is disabled by default; set `AUTH_EMAIL_ENABLED=true` to allow optional email at signup.
 - **Sessions** — HttpOnly cookie (`prism0_session`); generation and most API routes require an authenticated, verified session.
 - **Dashboard** — `/dashboard` shows hosted projects, generation history, token usage, and profile settings.
 - **Publish to the web** — After a successful run, publish to a stable public URL at `/h/:slug` with a separate manage link at `/manage/:editToken` (page views, versioning, revert, delete).
@@ -100,6 +100,7 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `APP_BASE_URL` (optional, default: `http://localhost:8787`; public origin used in verification email links)
 - `SESSION_TTL_MS` (optional, default: `604800000`; session lifetime in milliseconds, 7 days)
 - `AUTH_EXPOSE_VERIFICATION_TOKEN` (optional, default: `false`; dev/tests only — ignored when `NODE_ENV=production`)
+- `AUTH_EMAIL_ENABLED` (optional, default: `false`; enable email verification, change-email, and related UI)
 - `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_MAX` (optional; per-IP limits on register/login/verify/resend)
 - `AUTH_LOGIN_MAX_FAILURES` / `AUTH_LOGIN_LOCKOUT_MS` (optional; lock out usernames after repeated failed logins)
 

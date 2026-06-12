@@ -40,7 +40,8 @@ export const testConfig: AppConfig = {
   authRateLimitWindowMs: 60_000,
   authRateLimitMax: 100,
   authLoginMaxFailures: 100,
-  authLoginLockoutMs: 60_000
+  authLoginLockoutMs: 60_000,
+  authEmailEnabled: true
 };
 
 export type TestServices = {
@@ -60,7 +61,8 @@ export function createTestServices(
     sendEmail,
     appBaseUrl: config.appBaseUrl,
     sessionTtlMs: config.sessionTtlMs,
-    exposeVerificationToken: config.authExposeVerificationToken
+    exposeVerificationToken: config.authExposeVerificationToken,
+    emailEnabled: config.authEmailEnabled
   });
   const projects = new ProjectStore({ db, appBaseUrl: config.appBaseUrl });
   const history = new GenerationHistoryService(db);

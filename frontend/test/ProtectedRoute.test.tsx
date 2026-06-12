@@ -37,6 +37,7 @@ describe("ProtectedRoute", () => {
   it("shows a loading message while auth is loading", () => {
     useAuthMock.mockReturnValue({
       user: null,
+      features: { emailEnabled: true },
       isLoading: true
     });
 
@@ -48,6 +49,7 @@ describe("ProtectedRoute", () => {
   it("redirects unauthenticated users to login", () => {
     useAuthMock.mockReturnValue({
       user: null,
+      features: { emailEnabled: true },
       isLoading: false
     });
 
@@ -67,6 +69,7 @@ describe("ProtectedRoute", () => {
         displayName: null,
         createdAt: 1
       },
+      features: { emailEnabled: true },
       isLoading: false
     });
 
@@ -86,6 +89,26 @@ describe("ProtectedRoute", () => {
         displayName: null,
         createdAt: 1
       },
+      features: { emailEnabled: true },
+      isLoading: false
+    });
+
+    renderProtectedRoute();
+
+    expect(screen.getByText("secret")).toBeInTheDocument();
+  });
+
+  it("allows unverified users when email is disabled on the server", () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: "user-1",
+        username: "testuser",
+        email: "test@example.com",
+        emailVerified: false,
+        displayName: null,
+        createdAt: 1
+      },
+      features: { emailEnabled: false },
       isLoading: false
     });
 
@@ -104,6 +127,7 @@ describe("ProtectedRoute", () => {
         displayName: null,
         createdAt: 1
       },
+      features: { emailEnabled: true },
       isLoading: false
     });
 

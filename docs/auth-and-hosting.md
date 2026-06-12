@@ -8,7 +8,7 @@ This document covers user flows, routes, APIs, persistence, configuration, and p
 
 | Area | Summary |
 | --- | --- |
-| **Accounts** | Register with username and password. Email is optional; when provided, it must be verified before login. |
+| **Accounts** | Register with username and password. Email is optional when `AUTH_EMAIL_ENABLED=true`; verified email is required before login only when an address is provided. |
 | **Sessions** | HttpOnly cookie `prism0_session` (7-day default TTL). |
 | **Persistence** | SQLite via `better-sqlite3` at `DATABASE_PATH` (default `./data/prism0.db`). |
 | **Dashboard** | Projects, generation history, token usage, profile settings. |
@@ -40,13 +40,15 @@ Frontend:
 
 ### Registration and verification
 
-1. User opens `/register` and submits username (3–32 chars, `[a-zA-Z0-9_]`) and password (min 8 chars). Email is optional.
-2. **Without email:** backend stores `email = NULL`, sets `email_verified = 1`, and the user can log in immediately.
-3. **With email:** backend creates the user with `email_verified = 0`, stores a scrypt password hash, and creates a 24-hour verification token.
-4. A verification email is sent when an address was provided (logged to stdout in development via the console email sender).
-5. User visits `/verify-email#token=…` (from the email link; token is in the URL fragment, not server logs) or uses the verify page UI.
-6. `POST /api/auth/verify-email` with `{ "token": "…" }` marks the account verified and deletes the token.
-7. User logs in at `/login`. Users with a pending email cannot log in until verified; users without email are not gated on verification.
+1. User opens `/register` and submits username (3–32 chars, `[a-zA-Z0-9_]`) and password (min 8 chars).
+2. **Email disabled (default):** no email field is shown; accounts are created without email and can log in immediately.
+3. **Email enabled (`AUTH_EMAIL_ENABLED=true`):** an optional email field is shown.
+4. **Without email:** backend stores `email = NULL`, sets `email_verified = 1`, and the user can log in immediately.
+5. **With email:** backend creates the user with `email_verified = 0`, stores a scrypt password hash, and creates a 24-hour verification token.
+6. A verification email is sent when an address was provided (logged to stdout in development via the console email sender).
+7. User visits `/verify-email#token=…` (from the email link; token is in the URL fragment, not server logs) or uses the verify page UI.
+8. `POST /api/auth/verify-email` with `{ "token": "…" }` marks the account verified and deletes the token.
+9. User logs in at `/login`. Users with a pending email cannot log in until verified; users without email are not gated on verification.
 
 **Development:** set `AUTH_EXPOSE_VERIFICATION_TOKEN=true` to include `verificationToken` in register/resend API responses so you can verify without reading server logs. **Do not enable in production.**
 
@@ -116,6 +118,7 @@ All auth routes are under `/api/auth`. Unless noted, errors return `400` with a 
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
+| `GET` | `/api/auth/features` | No | `{ emailEnabled }` server auth feature flags |
 | `GET` | `/api/auth/me` | Optional | `{ authenticated, user? }` from session cookie |
 | `POST` | `/api/auth/register` | No | Body: `{ username, password, email? }`. Returns `{ user, verificationToken? }` |
 | `POST` | `/api/auth/login` | No | Body: `{ username, password }`. Sets session cookie; returns `{ user }` |
@@ -207,6 +210,7 @@ The Docker image compiles `better-sqlite3` in the build stage and copies the nat
 | `APP_BASE_URL` | `http://localhost:8787` | Base URL for verification links in emails |
 | `SESSION_TTL_MS` | `604800000` (7 days) | Session cookie / DB expiry |
 | `AUTH_EXPOSE_VERIFICATION_TOKEN` | `false` | Return verification tokens in API JSON (dev/tests only; forced off in production) |
+| `AUTH_EMAIL_ENABLED` | `false` | Enable email registration, verification, change-email, and related UI |
 | `AUTH_RATE_LIMIT_WINDOW_MS` | `60000` | Per-IP window for register/login/resend/verify |
 | `AUTH_RATE_LIMIT_MAX` | `20` | Max auth requests per IP per window |
 | `AUTH_LOGIN_MAX_FAILURES` | `5` | Failed logins per username before lockout |

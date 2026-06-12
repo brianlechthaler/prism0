@@ -51,8 +51,13 @@ export type TokenSummary = {
   generationCount: number;
 };
 
+export type AuthFeatures = {
+  emailEnabled: boolean;
+};
+
 type AuthContextValue = {
   user: PublicUser | null;
+  features: AuthFeatures;
   isLoading: boolean;
   refresh: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
@@ -75,6 +80,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(null);
+  const [features, setFeatures] = useState<AuthFeatures>({ emailEnabled: false });
   const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -87,9 +93,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(json.authenticated && json.user ? json.user : null);
   }, []);
 
+  const loadFeatures = useCallback(async () => {
+    const res = await apiFetch("/api/auth/features");
+    if (!res.ok) return;
+    const json = (await res.json()) as AuthFeatures;
+    setFeatures(json);
+  }, []);
+
   useEffect(() => {
-    void refresh().finally(() => setIsLoading(false));
-  }, [refresh]);
+    void Promise.all([refresh(), loadFeatures()]).finally(() => setIsLoading(false));
+  }, [refresh, loadFeatures]);
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await apiFetch("/api/auth/login", { method: "POST", json: { username, password } });
@@ -173,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       user,
+      features,
       isLoading,
       refresh,
       login,
@@ -188,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       user,
+      features,
       isLoading,
       refresh,
       login,

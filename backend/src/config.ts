@@ -28,7 +28,8 @@ const EnvSchema = z.object({
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
   AUTH_LOGIN_MAX_FAILURES: z.coerce.number().int().positive().optional(),
-  AUTH_LOGIN_LOCKOUT_MS: z.coerce.number().int().positive().optional()
+  AUTH_LOGIN_LOCKOUT_MS: z.coerce.number().int().positive().optional(),
+  AUTH_EMAIL_ENABLED: BooleanEnvSchema.optional()
 });
 
 export function formatConfigIssues(
@@ -65,6 +66,7 @@ export type AppConfig = {
   authRateLimitMax: number;
   authLoginMaxFailures: number;
   authLoginLockoutMs: number;
+  authEmailEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig {
@@ -91,7 +93,8 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     AUTH_RATE_LIMIT_WINDOW_MS: env.AUTH_RATE_LIMIT_WINDOW_MS,
     AUTH_RATE_LIMIT_MAX: env.AUTH_RATE_LIMIT_MAX,
     AUTH_LOGIN_MAX_FAILURES: env.AUTH_LOGIN_MAX_FAILURES,
-    AUTH_LOGIN_LOCKOUT_MS: env.AUTH_LOGIN_LOCKOUT_MS
+    AUTH_LOGIN_LOCKOUT_MS: env.AUTH_LOGIN_LOCKOUT_MS,
+    AUTH_EMAIL_ENABLED: env.AUTH_EMAIL_ENABLED
   };
 
   const parsed = EnvSchema.safeParse(merged);
@@ -138,7 +141,8 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     authRateLimitWindowMs: parsed.data.AUTH_RATE_LIMIT_WINDOW_MS ?? 60_000,
     authRateLimitMax: parsed.data.AUTH_RATE_LIMIT_MAX ?? 20,
     authLoginMaxFailures: parsed.data.AUTH_LOGIN_MAX_FAILURES ?? 5,
-    authLoginLockoutMs: parsed.data.AUTH_LOGIN_LOCKOUT_MS ?? 15 * 60 * 1000
+    authLoginLockoutMs: parsed.data.AUTH_LOGIN_LOCKOUT_MS ?? 15 * 60 * 1000,
+    authEmailEnabled: parsed.data.AUTH_EMAIL_ENABLED ?? false
   };
 }
 

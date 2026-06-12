@@ -19,8 +19,11 @@ export type AuthServiceOptions = {
   appBaseUrl: string;
   sessionTtlMs: number;
   exposeVerificationToken: boolean;
+  emailEnabled: boolean;
   now?: () => number;
 };
+
+export const EMAIL_DISABLED_MESSAGE = "Email is not enabled on this server";
 
 const EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -35,6 +38,7 @@ export class AuthService {
   private readonly appBaseUrl: string;
   private readonly sessionTtlMs: number;
   private readonly exposeVerificationToken: boolean;
+  private readonly emailEnabled: boolean;
   private readonly now: () => number;
 
   constructor(options: AuthServiceOptions) {
@@ -43,6 +47,7 @@ export class AuthService {
     this.appBaseUrl = options.appBaseUrl;
     this.sessionTtlMs = options.sessionTtlMs;
     this.exposeVerificationToken = options.exposeVerificationToken;
+    this.emailEnabled = options.emailEnabled;
     this.now = options.now ?? Date.now;
   }
 
@@ -52,7 +57,10 @@ export class AuthService {
     password: string;
   }): { user: PublicUser; verificationToken?: string } {
     const username = input.username.trim();
-    const email = input.email?.trim().toLowerCase() ?? null;
+    const email = this.emailEnabled ? (input.email?.trim().toLowerCase() ?? null) : null;
+    if (!this.emailEnabled && input.email?.trim()) {
+      throw new AuthError(EMAIL_DISABLED_MESSAGE);
+    }
     const password = input.password;
 
     if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
@@ -144,6 +152,7 @@ export class AuthService {
   }
 
   verifyEmail(token: string): PublicUser {
+    this.requireEmailEnabled();
     const row = this.db
       .prepare(
         `SELECT evt.user_id, evt.expires_at
@@ -165,6 +174,7 @@ export class AuthService {
   }
 
   resendVerification(username: string, password: string): { verificationToken?: string } {
+    this.requireEmailEnabled();
     const row = this.db
       .prepare("SELECT id, email, email_verified, password_hash FROM users WHERE username = ? COLLATE NOCASE")
       .get(username.trim()) as
@@ -195,6 +205,7 @@ export class AuthService {
   }
 
   changeEmail(userId: string, newEmail: string, password: string): PublicUser {
+    this.requireEmailEnabled();
     const email = newEmail.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new AuthError("Invalid email address");
@@ -285,8 +296,12 @@ export class AuthService {
     return row;
   }
 
+  private requireEmailEnabled(): void {
+    if (!this.emailEnabled) throw new AuthError(EMAIL_DISABLED_MESSAGE);
+  }
+
   private isEmailVerificationSatisfied(email: string | null, emailVerified: number): boolean {
-    return !email || Boolean(emailVerified);
+    return !this.emailEnabled || !email || Boolean(emailVerified);
   }
 
   private mapUser(row: UserRow): PublicUser {

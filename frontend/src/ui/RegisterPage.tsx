@@ -4,7 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { AuthShell } from "./LoginPage";
 
 export function RegisterPage() {
-  const { register } = useAuth();
+  const { register, features } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -18,10 +18,10 @@ export function RegisterPage() {
     setIsSubmitting(true);
     setError(undefined);
     try {
-      const trimmedEmail = email.trim();
+      const trimmedEmail = features.emailEnabled ? email.trim() : "";
       const result = await register(username, trimmedEmail || undefined, password);
       setVerificationToken(result.verificationToken);
-      if (trimmedEmail) {
+      if (features.emailEnabled && trimmedEmail) {
         navigate("/verify-email", {
           replace: true,
           state: { username, verificationToken: result.verificationToken }
@@ -40,7 +40,14 @@ export function RegisterPage() {
   };
 
   return (
-    <AuthShell title="Create account" subtitle="Email is optional. Add one to verify your account and enable recovery.">
+    <AuthShell
+      title="Create account"
+      subtitle={
+        features.emailEnabled
+          ? "Email is optional. Add one to verify your account and enable recovery."
+          : "Create a username and password to get started."
+      }
+    >
       <form className="authForm" onSubmit={(event) => void submit(event)}>
         <label className="label" htmlFor="register-username">
           Username
@@ -54,17 +61,21 @@ export function RegisterPage() {
           required
         />
 
-        <label className="label" htmlFor="register-email">
-          Email (optional)
-        </label>
-        <input
-          id="register-email"
-          className="input"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          autoComplete="email"
-        />
+        {features.emailEnabled ? (
+          <>
+            <label className="label" htmlFor="register-email">
+              Email (optional)
+            </label>
+            <input
+              id="register-email"
+              className="input"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+            />
+          </>
+        ) : null}
 
         <label className="label" htmlFor="register-password">
           Password

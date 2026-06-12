@@ -16,6 +16,22 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <AuthProvider>{children}</AuthProvider>;
 }
 
+type ApiHandler = (url: string, options?: RequestInit) => Response | Promise<Response>;
+
+function setupApiMock(
+  handlers: Record<string, ApiHandler | Response>,
+  features: { emailEnabled: boolean } = { emailEnabled: false }
+) {
+  apiFetchMock.mockImplementation((url: string, options?: RequestInit) => {
+    if (url === "/api/auth/features") {
+      return Promise.resolve(jsonResponse(features));
+    }
+    const handler = handlers[url];
+    if (!handler) throw new Error(`Unexpected fetch ${url}`);
+    return Promise.resolve(typeof handler === "function" ? handler(url, options) : handler);
+  });
+}
+
 describe("useAuth", () => {
   afterEach(() => {
     apiFetchMock.mockReset();
@@ -26,9 +42,14 @@ describe("useAuth", () => {
     expect(() => renderHook(() => useAuth())).toThrow(/must be used within AuthProvider/i);
   });
 
-  it("loads the current user on mount", async () => {
+  it("loads auth features and the current user on mount", async () => {
     const user = createMockUser();
-    apiFetchMock.mockResolvedValue(jsonResponse({ authenticated: true, user }));
+    setupApiMock(
+      {
+        "/api/auth/me": jsonResponse({ authenticated: true, user })
+      },
+      { emailEnabled: true }
+    );
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -36,11 +57,15 @@ describe("useAuth", () => {
       expect(result.current.isLoading).toBe(false);
     });
     expect(result.current.user).toEqual(user);
+    expect(result.current.features).toEqual({ emailEnabled: true });
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/features");
     expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/me");
   });
 
   it("clears the user when the session endpoint fails", async () => {
-    apiFetchMock.mockResolvedValue(new Response("", { status: 401 }));
+    setupApiMock({
+      "/api/auth/me": new Response("", { status: 401 })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -51,7 +76,9 @@ describe("useAuth", () => {
   });
 
   it("clears the user when the session is unauthenticated", async () => {
-    apiFetchMock.mockResolvedValue(jsonResponse({ authenticated: false }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -61,9 +88,10 @@ describe("useAuth", () => {
   });
 
   it("logs in and stores the returned user", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ user: createMockUser({ username: "logged-in" }) }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/login": jsonResponse({ user: createMockUser({ username: "logged-in" }) })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -80,9 +108,10 @@ describe("useAuth", () => {
   });
 
   it("surfaces login failures", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(new Response("", { status: 401 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/login": new Response("", { status: 401 })
+    });
     readApiErrorMock.mockResolvedValue("Invalid credentials");
 
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -92,9 +121,10 @@ describe("useAuth", () => {
   });
 
   it("registers an account without email", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({}));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/register": jsonResponse({})
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -107,9 +137,10 @@ describe("useAuth", () => {
   });
 
   it("registers an account", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ verificationToken: "dev-token" }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/register": jsonResponse({ verificationToken: "dev-token" })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -120,9 +151,10 @@ describe("useAuth", () => {
   });
 
   it("surfaces register failures", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(new Response("", { status: 400 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/register": new Response("", { status: 400 })
+    });
     readApiErrorMock.mockResolvedValue("Username taken");
 
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -134,9 +166,10 @@ describe("useAuth", () => {
   });
 
   it("logs out and clears the user", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, user: createMockUser() }))
-      .mockResolvedValueOnce(new Response("", { status: 200 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: true, user: createMockUser() }),
+      "/api/auth/logout": new Response("", { status: 200 })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.user).not.toBeNull());
@@ -161,9 +194,10 @@ describe("useAuth", () => {
         generationCount: 1
       }
     };
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse(dashboard));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/dashboard": jsonResponse(dashboard)
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -173,9 +207,10 @@ describe("useAuth", () => {
 
   it("updates the profile and refreshes the user", async () => {
     const updated = createMockUser({ displayName: "Updated Name" });
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, user: createMockUser() }))
-      .mockResolvedValueOnce(jsonResponse({ user: updated }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: true, user: createMockUser() }),
+      "/api/auth/profile": jsonResponse({ user: updated })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.user).not.toBeNull());
@@ -188,9 +223,10 @@ describe("useAuth", () => {
   });
 
   it("changes email and clears the session", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, user: createMockUser() }))
-      .mockResolvedValueOnce(new Response("", { status: 200 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: true, user: createMockUser() }),
+      "/api/auth/change-email": new Response("", { status: 200 })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.user).not.toBeNull());
@@ -203,9 +239,10 @@ describe("useAuth", () => {
   });
 
   it("changes password and clears the session", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, user: createMockUser() }))
-      .mockResolvedValueOnce(new Response("", { status: 200 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: true, user: createMockUser() }),
+      "/api/auth/change-password": new Response("", { status: 200 })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.user).not.toBeNull());
@@ -218,9 +255,10 @@ describe("useAuth", () => {
   });
 
   it("deletes the account and clears the session", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, user: createMockUser() }))
-      .mockResolvedValueOnce(new Response("", { status: 200 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: true, user: createMockUser() }),
+      "/api/auth/account": new Response("", { status: 200 })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.user).not.toBeNull());
@@ -234,9 +272,10 @@ describe("useAuth", () => {
 
   it("verifies email and stores the returned user", async () => {
     const verified = createMockUser({ emailVerified: true });
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ user: verified }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/verify-email": jsonResponse({ user: verified })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -249,9 +288,10 @@ describe("useAuth", () => {
   });
 
   it("resends verification email", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ verificationToken: "new-token" }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/auth/resend-verification": jsonResponse({ verificationToken: "new-token" })
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -262,9 +302,16 @@ describe("useAuth", () => {
   });
 
   it("surfaces failures from protected auth actions", async () => {
-    apiFetchMock
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValue(new Response("", { status: 500 }));
+    setupApiMock({
+      "/api/auth/me": jsonResponse({ authenticated: false }),
+      "/api/dashboard": new Response("", { status: 500 }),
+      "/api/auth/profile": new Response("", { status: 500 }),
+      "/api/auth/change-email": new Response("", { status: 500 }),
+      "/api/auth/change-password": new Response("", { status: 500 }),
+      "/api/auth/account": new Response("", { status: 500 }),
+      "/api/auth/verify-email": new Response("", { status: 500 }),
+      "/api/auth/resend-verification": new Response("", { status: 500 })
+    });
     readApiErrorMock.mockResolvedValue("Server error");
 
     const { result } = renderHook(() => useAuth(), { wrapper });

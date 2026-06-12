@@ -13,6 +13,7 @@ const authMocks = vi.hoisted(() => ({
     displayName: "Test User",
     createdAt: 1
   },
+  features: { emailEnabled: true },
   loadDashboard: vi.fn(),
   logout: vi.fn(),
   updateProfile: vi.fn(),

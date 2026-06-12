@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { AuthShell } from "./LoginPage";
 
@@ -12,7 +12,7 @@ function readVerificationToken(searchParams: URLSearchParams, locationHash: stri
 }
 
 export function VerifyEmailPage() {
-  const { verifyEmail, resendVerification } = useAuth();
+  const { verifyEmail, resendVerification, features, isLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const [message, setMessage] = useState("Check your inbox for a verification link.");
@@ -29,6 +29,7 @@ export function VerifyEmailPage() {
       : "";
 
   useEffect(() => {
+    if (!features.emailEnabled) return;
     const token = readVerificationToken(searchParams, location.hash);
     if (!token) return;
 
@@ -40,7 +41,11 @@ export function VerifyEmailPage() {
       .catch((verifyError) => {
         setError(verifyError instanceof Error ? verifyError.message : String(verifyError));
       });
-  }, [location.hash, searchParams, verifyEmail]);
+  }, [features.emailEnabled, location.hash, searchParams, verifyEmail]);
+
+  if (!isLoading && !features.emailEnabled) {
+    return <Navigate to="/login" replace />;
+  }
 
   const resend = async (event: React.FormEvent) => {
     event.preventDefault();

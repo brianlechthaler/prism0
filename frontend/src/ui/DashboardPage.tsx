@@ -4,7 +4,7 @@ import type { DashboardData } from "../hooks/useAuth";
 import { useAuth } from "../hooks/useAuth";
 
 export function DashboardPage() {
-  const { user, loadDashboard, logout, updateProfile, changeEmail, changePassword, deleteAccount } =
+  const { user, loadDashboard, logout, updateProfile, changeEmail, changePassword, deleteAccount, features } =
     useAuth();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | undefined>();
@@ -114,6 +114,7 @@ export function DashboardPage() {
         </section>
 
         <ProfileSettings
+          emailEnabled={features.emailEnabled}
           currentEmail={dashboard?.user.email ?? user?.email ?? null}
           displayName={displayName}
           onDisplayNameChange={setDisplayName}
@@ -129,6 +130,7 @@ export function DashboardPage() {
 }
 
 function ProfileSettings({
+  emailEnabled,
   currentEmail,
   displayName,
   onDisplayNameChange,
@@ -138,6 +140,7 @@ function ProfileSettings({
   onChangePassword,
   onDeleteAccount
 }: {
+  emailEnabled: boolean;
   currentEmail: string | null;
   displayName: string;
   onDisplayNameChange: (value: string) => void;
@@ -174,6 +177,7 @@ function ProfileSettings({
         {profileMessage ? <div className="publishMessage">{profileMessage}</div> : null}
       </form>
 
+      {emailEnabled ? (
       <form
         className="authForm"
         onSubmit={(event) => {
@@ -210,6 +214,7 @@ function ProfileSettings({
           Update email
         </button>
       </form>
+      ) : null}
 
       <form
         className="authForm"
