@@ -10,6 +10,12 @@ COPY frontend/package.json frontend/package.json
 RUN npm ci --ignore-scripts \
   && npm ci --prefix backend/validation-harness
 
+# better-sqlite3 is a native addon; compile once here with build tools, then copy into runtime.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && npm rebuild better-sqlite3 -w backend \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 RUN npm run build
 
@@ -26,9 +32,9 @@ COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
 RUN npm ci --omit=dev --ignore-scripts \
-  && npm ci --prefix backend/validation-harness \
-  && npm rebuild better-sqlite3 -w backend
+  && npm ci --prefix backend/validation-harness
 
+COPY --from=build /app/node_modules/better-sqlite3 /app/node_modules/better-sqlite3
 COPY --from=build /app/backend/dist backend/dist
 COPY --from=build /app/frontend/dist frontend/dist
 COPY backend/validation-harness/eslint.config.js backend/validation-harness/vitest.config.js backend/validation-harness/
