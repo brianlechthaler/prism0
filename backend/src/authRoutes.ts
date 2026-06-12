@@ -1,12 +1,14 @@
 import type { Express, Response } from "express";
 import { z } from "zod";
 import { AuthError, type AuthService } from "./auth.js";
+import { createAuthRateLimitGuard, LoginFailureTracker } from "./authRateLimit.js";
 import {
   clearSessionCookie,
   type AuthenticatedRequest,
   requireAuth,
   setSessionCookie
 } from "./authMiddleware.js";
+import type { AppConfig } from "./config.js";
 import type { GenerationHistoryService } from "./generationHistory.js";
 import type { ProjectStore } from "./projectStore.js";
 
@@ -19,6 +21,10 @@ const RegisterSchema = z.object({
 const LoginSchema = z.object({
   username: z.string().trim().min(1).max(32),
   password: z.string().min(1).max(200)
+});
+
+const VerifyEmailSchema = z.object({
+  token: z.string().trim().min(1).max(128)
 });
 
 const ProfileSchema = z.object({
@@ -39,18 +45,32 @@ const PasswordConfirmSchema = z.object({
   password: z.string().min(1).max(200)
 });
 
-export type AuthRoutesOptions = {
-  sessionTtlMs: number;
-  exposeVerificationToken: boolean;
-};
+export type AuthRoutesConfig = Pick<
+  AppConfig,
+  | "sessionTtlMs"
+  | "authExposeVerificationToken"
+  | "authRateLimitWindowMs"
+  | "authRateLimitMax"
+  | "authLoginMaxFailures"
+  | "authLoginLockoutMs"
+>;
 
 export function registerAuthRoutes(
   app: Express,
   auth: AuthService,
   projects: ProjectStore,
   history: GenerationHistoryService,
-  options: AuthRoutesOptions
+  config: AuthRoutesConfig,
+  deps: {
+    authRateLimit?: ReturnType<typeof createAuthRateLimitGuard>;
+    loginFailures?: LoginFailureTracker;
+  } = {}
 ): void {
+  const authRateLimit = deps.authRateLimit ?? createAuthRateLimitGuard(config as AppConfig);
+  const loginFailures =
+    deps.loginFailures ??
+    new LoginFailureTracker(config.authLoginMaxFailures, config.authLoginLockoutMs);
+
   app.get("/api/auth/me", (req, res) => {
     const user = (req as AuthenticatedRequest).user;
     if (!user) {
@@ -60,7 +80,7 @@ export function registerAuthRoutes(
     res.json({ authenticated: true, user });
   });
 
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", authRateLimit, async (req, res) => {
     const parsed = RegisterSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((issue) => issue.message).join("; "));
@@ -75,18 +95,35 @@ export function registerAuthRoutes(
     }
   });
 
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", authRateLimit, (req, res) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((issue) => issue.message).join("; "));
       return;
     }
 
+    if (loginFailures.isLocked(parsed.data.username)) {
+      const retryAfter = loginFailures.lockoutRetryAfterSeconds(parsed.data.username);
+      if (retryAfter > 0) res.setHeader("Retry-After", String(retryAfter));
+      res.status(429).send("Too many failed login attempts; try again later");
+      return;
+    }
+
     try {
       const result = auth.login(parsed.data.username, parsed.data.password);
-      setSessionCookie(res, result.sessionToken, options.sessionTtlMs);
+      loginFailures.clear(parsed.data.username);
+      setSessionCookie(res, result.sessionToken, config.sessionTtlMs);
       res.json({ user: result.user });
     } catch (error) {
+      if (error instanceof AuthError && error.message === "Invalid username or password") {
+        loginFailures.recordFailure(parsed.data.username);
+        if (loginFailures.isLocked(parsed.data.username)) {
+          const retryAfter = loginFailures.lockoutRetryAfterSeconds(parsed.data.username);
+          if (retryAfter > 0) res.setHeader("Retry-After", String(retryAfter));
+          res.status(429).send("Too many failed login attempts; try again later");
+          return;
+        }
+      }
       handleAuthError(res, error);
     }
   });
@@ -98,22 +135,22 @@ export function registerAuthRoutes(
     res.json({ ok: true });
   });
 
-  app.get("/api/auth/verify-email", (req, res) => {
-    const token = typeof req.query.token === "string" ? req.query.token : "";
-    if (!token) {
-      res.status(400).send("Missing verification token");
+  app.post("/api/auth/verify-email", authRateLimit, (req, res) => {
+    const parsed = VerifyEmailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).send(parsed.error.issues.map((issue) => issue.message).join("; "));
       return;
     }
 
     try {
-      const user = auth.verifyEmail(token);
+      const user = auth.verifyEmail(parsed.data.token);
       res.json({ verified: true, user });
     } catch (error) {
       handleAuthError(res, error);
     }
   });
 
-  app.post("/api/auth/resend-verification", (req, res) => {
+  app.post("/api/auth/resend-verification", authRateLimit, (req, res) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((issue) => issue.message).join("; "));

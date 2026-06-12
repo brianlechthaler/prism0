@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { safeRedirectPath } from "../safeRedirect";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -11,13 +12,11 @@ export function LoginPage() {
   const [error, setError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const from =
-    typeof location.state === "object" &&
-    location.state &&
-    "from" in location.state &&
-    typeof location.state.from === "string"
+  const from = safeRedirectPath(
+    typeof location.state === "object" && location.state && "from" in location.state
       ? location.state.from
-      : "/dashboard";
+      : undefined
+  );
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

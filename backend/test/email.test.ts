@@ -9,7 +9,7 @@ describe("email", () => {
   it("builds verification email links without trailing slashes", () => {
     const email = buildVerificationEmail("http://127.0.0.1:8787/", "token-123");
     expect(email.subject).toBe("Verify your prism0 account");
-    expect(email.text).toContain("http://127.0.0.1:8787/verify-email?token=token-123");
+    expect(email.text).toContain("http://127.0.0.1:8787/verify-email#token=token-123");
     expect(email.text).toContain("expires in 24 hours");
   });
 

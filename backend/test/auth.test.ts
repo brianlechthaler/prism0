@@ -57,15 +57,15 @@ describe("AuthService", () => {
     ).toThrow(/Password must be at least 8/);
   });
 
-  it("rejects duplicate username and email", () => {
+  it("rejects duplicate username and email with a generic message", () => {
     const { auth } = createAuth();
     auth.register({ username: "dup", email: "one@example.com", password: "password123" });
     expect(() =>
       auth.register({ username: "dup", email: "two@example.com", password: "password123" })
-    ).toThrow(/Username is already taken/);
+    ).toThrow(/Registration failed/);
     expect(() =>
       auth.register({ username: "other", email: "one@example.com", password: "password123" })
-    ).toThrow(/Email is already registered/);
+    ).toThrow(/Registration failed/);
   });
 
   it("logs in verified users and rejects invalid credentials", () => {
@@ -76,12 +76,27 @@ describe("AuthService", () => {
       password: "password123"
     });
     expect(() => auth.login("login_user", "wrong-password")).toThrow(/Invalid username or password/);
-    expect(() => auth.login("login_user", "password123")).toThrow(/not verified/);
+    expect(() => auth.login("login_user", "password123")).toThrow(/Invalid username or password/);
 
     auth.verifyEmail(verificationToken!);
     const session = auth.login("login_user", "password123");
     expect(session.user.emailVerified).toBe(true);
     expect(session.sessionToken).toMatch(/^[0-9a-f]+$/);
+  });
+
+  it("replaces prior sessions when logging in again", () => {
+    const { auth } = createAuth();
+    const { verificationToken } = auth.register({
+      username: "rotate_user",
+      email: "rotate@example.com",
+      password: "password123"
+    });
+    auth.verifyEmail(verificationToken!);
+    const first = auth.login("rotate_user", "password123");
+    const second = auth.login("rotate_user", "password123");
+    expect(first.sessionToken).not.toBe(second.sessionToken);
+    expect(auth.getUserBySession(first.sessionToken)).toBeUndefined();
+    expect(auth.getUserBySession(second.sessionToken)?.username).toBe("rotate_user");
   });
 
   it("expires sessions and removes stale session tokens", () => {
@@ -193,7 +208,7 @@ describe("AuthService", () => {
     expect(() => auth.changeEmail(user.id, "new@example.com", "wrong-password")).toThrow(/Invalid password/);
 
     auth.register({ username: "other_email", email: "taken@example.com", password: "password123" });
-    expect(() => auth.changeEmail(user.id, "taken@example.com", "password123")).toThrow(/already registered/);
+    expect(() => auth.changeEmail(user.id, "taken@example.com", "password123")).toThrow(/Unable to update email/);
 
     const updated = auth.changeEmail(user.id, "new@example.com", "password123");
     expect(updated.email).toBe("new@example.com");

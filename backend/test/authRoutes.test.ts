@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AuthService } from "../src/auth.js";
+import { AuthError, AuthService } from "../src/auth.js";
 import { openDatabase } from "../src/db.js";
 import { GenerationHistoryService } from "../src/generationHistory.js";
 import { ProjectStore } from "../src/projectStore.js";
 import { registerAuthRoutes } from "../src/authRoutes.js";
+import { LoginFailureTracker } from "../src/authRateLimit.js";
 import type { AuthenticatedRequest } from "../src/authMiddleware.js";
 import { createAuthMiddleware } from "../src/authMiddleware.js";
 import express from "express";
 import {
   createTestApp,
+  createTestServices,
   registerAndLogin,
   testConfig,
   withAuthedServer,
@@ -121,7 +123,7 @@ describe("authRoutes", () => {
         body: JSON.stringify({ username: "unverified", password: "password123" })
       });
       expect(loginRes.status).toBe(400);
-      expect(await loginRes.text()).toContain("not verified");
+      expect(await loginRes.text()).toContain("Invalid username or password");
     });
   });
 
@@ -168,7 +170,11 @@ describe("authRoutes", () => {
     const { app } = createTestApp(new RunStore(), testConfig, services);
 
     await withServer(app, async (port) => {
-      const missing = await fetch(`http://127.0.0.1:${port}/api/auth/verify-email`);
+      const missing = await fetch(`http://127.0.0.1:${port}/api/auth/verify-email`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({})
+      });
       expect(missing.status).toBe(400);
 
       const registerRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
@@ -179,9 +185,11 @@ describe("authRoutes", () => {
       const registerJson = (await registerRes.json()) as { verificationToken: string };
 
       now += 24 * 60 * 60 * 1000 + 1;
-      const expired = await fetch(
-        `http://127.0.0.1:${port}/api/auth/verify-email?token=${encodeURIComponent(registerJson.verificationToken)}`
-      );
+      const expired = await fetch(`http://127.0.0.1:${port}/api/auth/verify-email`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ token: registerJson.verificationToken })
+      });
       expect(expired.status).toBe(400);
       expect(await expired.text()).toContain("expired");
 
@@ -192,9 +200,11 @@ describe("authRoutes", () => {
       });
       const freshJson = (await freshRegister.json()) as { verificationToken: string };
       now += 1;
-      const verified = await fetch(
-        `http://127.0.0.1:${port}/api/auth/verify-email?token=${encodeURIComponent(freshJson.verificationToken)}`
-      );
+      const verified = await fetch(`http://127.0.0.1:${port}/api/auth/verify-email`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ token: freshJson.verificationToken })
+      });
       expect(verified.status).toBe(200);
       expect((await verified.json()).verified).toBe(true);
     });
@@ -271,9 +281,11 @@ describe("authRoutes", () => {
         body: JSON.stringify({ username: `user${port}`, password: "password123" })
       });
       const verifyJson = (await verifyRes.json()) as { verificationToken: string };
-      await fetch(
-        `http://127.0.0.1:${port}/api/auth/verify-email?token=${encodeURIComponent(verifyJson.verificationToken)}`
-      );
+      await fetch(`http://127.0.0.1:${port}/api/auth/verify-email`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ token: verifyJson.verificationToken })
+      });
       const relogin = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
@@ -402,10 +414,7 @@ describe("authRoutes", () => {
       delete (req as AuthenticatedRequest).sessionToken;
       next();
     });
-    registerAuthRoutes(app, services.auth, services.projects, services.history, {
-      sessionTtlMs: testConfig.sessionTtlMs,
-      exposeVerificationToken: true
-    });
+    registerAuthRoutes(app, services.auth, services.projects, services.history, testConfig);
 
     await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/logout`, {
@@ -414,6 +423,144 @@ describe("authRoutes", () => {
       });
       expect(res.status).toBe(200);
       expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    });
+  });
+
+  it("returns lockout without Retry-After when retry seconds are zero", async () => {
+    const config = { ...testConfig, authLoginMaxFailures: 2, authLoginLockoutMs: 60_000 };
+    const loginFailures = {
+      isLocked: () => true,
+      lockoutRetryAfterSeconds: () => 0,
+      recordFailure: vi.fn(),
+      clear: vi.fn()
+    } as unknown as LoginFailureTracker;
+    const appWithTracker = express();
+    appWithTracker.use(express.json());
+    const services = createTestServices(config);
+    appWithTracker.use(createAuthMiddleware(services.auth));
+    registerAuthRoutes(appWithTracker, services.auth, services.projects, services.history, config, {
+      loginFailures
+    });
+
+    await withServer(appWithTracker, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "any_user", password: "password123" })
+      });
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBeNull();
+    });
+  });
+
+  it("returns lockout without Retry-After after the final failed attempt", async () => {
+    const config = { ...testConfig, authLoginMaxFailures: 2, authLoginLockoutMs: 60_000 };
+    const loginFailures = {
+      isLocked: vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true),
+      lockoutRetryAfterSeconds: () => 0,
+      recordFailure: vi.fn(),
+      clear: vi.fn()
+    } as unknown as LoginFailureTracker;
+    const appWithTracker = express();
+    appWithTracker.use(express.json());
+    const services = createTestServices(config);
+    appWithTracker.use(createAuthMiddleware(services.auth));
+    vi.spyOn(services.auth, "login").mockImplementation(() => {
+      throw new AuthError("Invalid username or password");
+    });
+    registerAuthRoutes(appWithTracker, services.auth, services.projects, services.history, config, {
+      loginFailures
+    });
+
+    await withServer(appWithTracker, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "any_user", password: "wrong-password" })
+      });
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBeNull();
+      expect(loginFailures.recordFailure).toHaveBeenCalledWith("any_user");
+    });
+  });
+
+  it("does not lock out on non-credential login errors", async () => {
+    const { app, services } = createTestApp();
+    vi.spyOn(services.auth, "login").mockImplementation(() => {
+      throw new AuthError("Account disabled");
+    });
+
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "some_user", password: "password123" })
+      });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toBe("Account disabled");
+    });
+  });
+
+  it("locks out repeated failed login attempts", async () => {
+    const config = { ...testConfig, authLoginMaxFailures: 2, authLoginLockoutMs: 60_000 };
+    const loginFailures = new LoginFailureTracker(2, 60_000);
+    const appWithTracker = express();
+    appWithTracker.use(express.json());
+    const services = createTestServices(config);
+    appWithTracker.use(createAuthMiddleware(services.auth));
+    registerAuthRoutes(appWithTracker, services.auth, services.projects, services.history, config, {
+      loginFailures
+    });
+
+    await withServer(appWithTracker, async (port) => {
+      await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "lockout_user", email: "lockout@example.com", password: "password123" })
+      });
+
+      const fail1 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "lockout_user", password: "wrong-password" })
+      });
+      expect(fail1.status).toBe(400);
+
+      const locked = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "lockout_user", password: "wrong-password" })
+      });
+      expect(locked.status).toBe(429);
+      expect(await locked.text()).toContain("Too many failed login attempts");
+
+      const stillLocked = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "lockout_user", password: "wrong-password" })
+      });
+      expect(stillLocked.status).toBe(429);
+      expect(stillLocked.headers.get("retry-after")).toBeTruthy();
+    });
+  });
+
+  it("rate limits authentication endpoints per client", async () => {
+    const config = { ...testConfig, authRateLimitMax: 1, authRateLimitWindowMs: 60_000 };
+    const { app } = createTestApp(new RunStore(), config);
+    await withServer(app, async (port) => {
+      const first = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "rate_user", email: "rate@example.com", password: "password123" })
+      });
+      expect(first.status).toBe(201);
+
+      const second = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "rate_user2", email: "rate2@example.com", password: "password123" })
+      });
+      expect(second.status).toBe(429);
     });
   });
 

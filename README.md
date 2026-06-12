@@ -99,7 +99,9 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `DATABASE_PATH` (optional, default: `./data/prism0.db`; SQLite file for users, sessions, and hosted projects)
 - `APP_BASE_URL` (optional, default: `http://localhost:8787`; public origin used in verification email links)
 - `SESSION_TTL_MS` (optional, default: `604800000`; session lifetime in milliseconds, 7 days)
-- `AUTH_EXPOSE_VERIFICATION_TOKEN` (optional, default: `false`; set to `true` in dev/tests to return verification tokens in API responses — **never in production**)
+- `AUTH_EXPOSE_VERIFICATION_TOKEN` (optional, default: `false`; dev/tests only — ignored when `NODE_ENV=production`)
+- `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_MAX` (optional; per-IP limits on register/login/verify/resend)
+- `AUTH_LOGIN_MAX_FAILURES` / `AUTH_LOGIN_LOCKOUT_MS` (optional; lock out usernames after repeated failed logins)
 
 Example (NVIDIA NIM-style, similar to `generate.js`):
 
@@ -147,7 +149,7 @@ CLI flags override environment variables when starting the backend (`npm run dev
 | `POST` | `/api/auth/register` | No | `{ username, email, password }` → `{ user, verificationToken? }` |
 | `POST` | `/api/auth/login` | No | Sets `prism0_session` cookie; returns `{ user }` |
 | `POST` | `/api/auth/logout` | Yes | Clears session |
-| `GET` | `/api/auth/verify-email` | No | Query `token` — verify email |
+| `POST` | `/api/auth/verify-email` | No | Body `{ token }` — verify email |
 | `POST` | `/api/auth/resend-verification` | No | `{ username, password }` |
 | `PATCH` | `/api/auth/profile` | Yes | `{ displayName }` |
 | `POST` | `/api/auth/change-email` | Yes | `{ email, password }` |

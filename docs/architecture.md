@@ -47,7 +47,7 @@ prism0 turns a text idea into a small browser app, validates the generated proje
 ### Authentication (first visit)
 
 1. User registers at `POST /api/auth/register`; backend stores credentials and sends a verification email.
-2. User verifies via `GET /api/auth/verify-email?token=…`.
+2. User verifies via `POST /api/auth/verify-email` (email links use `/verify-email#token=…`).
 3. User logs in at `POST /api/auth/login`; backend sets an HttpOnly session cookie.
 4. `GET /api/auth/me` and auth middleware attach `user` to subsequent requests.
 

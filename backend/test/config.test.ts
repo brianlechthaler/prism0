@@ -25,6 +25,10 @@ describe("loadConfig", () => {
     expect(cfg.appBaseUrl).toBe("http://localhost:8787");
     expect(cfg.sessionTtlMs).toBe(7 * 24 * 60 * 60 * 1000);
     expect(cfg.authExposeVerificationToken).toBe(false);
+    expect(cfg.authRateLimitWindowMs).toBe(60_000);
+    expect(cfg.authRateLimitMax).toBe(20);
+    expect(cfg.authLoginMaxFailures).toBe(5);
+    expect(cfg.authLoginLockoutMs).toBe(15 * 60 * 1000);
   });
 
   it("accepts request timeout override from env", () => {
@@ -126,6 +130,34 @@ describe("loadConfig", () => {
     expect(cfg.appBaseUrl).toBe("https://app.example.com");
     expect(cfg.sessionTtlMs).toBe(3_600_000);
     expect(cfg.authExposeVerificationToken).toBe(true);
+  });
+
+  it("ignores auth expose verification token in production", () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const cfg = loadConfig({
+        OPENAI_API_KEY: "k",
+        AUTH_EXPOSE_VERIFICATION_TOKEN: "true"
+      });
+      expect(cfg.authExposeVerificationToken).toBe(false);
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  it("accepts auth rate-limit overrides from env", () => {
+    const cfg = loadConfig({
+      OPENAI_API_KEY: "k",
+      AUTH_RATE_LIMIT_WINDOW_MS: "30000",
+      AUTH_RATE_LIMIT_MAX: "3",
+      AUTH_LOGIN_MAX_FAILURES: "2",
+      AUTH_LOGIN_LOCKOUT_MS: "120000"
+    });
+    expect(cfg.authRateLimitWindowMs).toBe(30_000);
+    expect(cfg.authRateLimitMax).toBe(3);
+    expect(cfg.authLoginMaxFailures).toBe(2);
+    expect(cfg.authLoginLockoutMs).toBe(120_000);
   });
 
   it("accepts false auth expose verification token override from env", () => {

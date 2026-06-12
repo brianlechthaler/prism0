@@ -24,7 +24,11 @@ const EnvSchema = z.object({
   DATABASE_PATH: z.string().min(1).optional(),
   APP_BASE_URL: z.string().url().optional(),
   SESSION_TTL_MS: z.coerce.number().int().positive().optional(),
-  AUTH_EXPOSE_VERIFICATION_TOKEN: BooleanEnvSchema.optional()
+  AUTH_EXPOSE_VERIFICATION_TOKEN: BooleanEnvSchema.optional(),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
+  AUTH_LOGIN_MAX_FAILURES: z.coerce.number().int().positive().optional(),
+  AUTH_LOGIN_LOCKOUT_MS: z.coerce.number().int().positive().optional()
 });
 
 export function formatConfigIssues(
@@ -57,6 +61,10 @@ export type AppConfig = {
   appBaseUrl: string;
   sessionTtlMs: number;
   authExposeVerificationToken: boolean;
+  authRateLimitWindowMs: number;
+  authRateLimitMax: number;
+  authLoginMaxFailures: number;
+  authLoginLockoutMs: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig {
@@ -79,7 +87,11 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     DATABASE_PATH: env.DATABASE_PATH,
     APP_BASE_URL: env.APP_BASE_URL,
     SESSION_TTL_MS: env.SESSION_TTL_MS,
-    AUTH_EXPOSE_VERIFICATION_TOKEN: env.AUTH_EXPOSE_VERIFICATION_TOKEN
+    AUTH_EXPOSE_VERIFICATION_TOKEN: env.AUTH_EXPOSE_VERIFICATION_TOKEN,
+    AUTH_RATE_LIMIT_WINDOW_MS: env.AUTH_RATE_LIMIT_WINDOW_MS,
+    AUTH_RATE_LIMIT_MAX: env.AUTH_RATE_LIMIT_MAX,
+    AUTH_LOGIN_MAX_FAILURES: env.AUTH_LOGIN_MAX_FAILURES,
+    AUTH_LOGIN_LOCKOUT_MS: env.AUTH_LOGIN_LOCKOUT_MS
   };
 
   const parsed = EnvSchema.safeParse(merged);
@@ -119,7 +131,14 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     databasePath: parsed.data.DATABASE_PATH ?? "./data/prism0.db",
     appBaseUrl: parsed.data.APP_BASE_URL ?? `http://localhost:${parsed.data.PORT ?? 8787}`,
     sessionTtlMs: parsed.data.SESSION_TTL_MS ?? 7 * 24 * 60 * 60 * 1000,
-    authExposeVerificationToken: parsed.data.AUTH_EXPOSE_VERIFICATION_TOKEN ?? false
+    authExposeVerificationToken:
+      process.env.NODE_ENV === "production"
+        ? false
+        : (parsed.data.AUTH_EXPOSE_VERIFICATION_TOKEN ?? false),
+    authRateLimitWindowMs: parsed.data.AUTH_RATE_LIMIT_WINDOW_MS ?? 60_000,
+    authRateLimitMax: parsed.data.AUTH_RATE_LIMIT_MAX ?? 20,
+    authLoginMaxFailures: parsed.data.AUTH_LOGIN_MAX_FAILURES ?? 5,
+    authLoginLockoutMs: parsed.data.AUTH_LOGIN_LOCKOUT_MS ?? 15 * 60 * 1000
   };
 }
 

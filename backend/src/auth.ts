@@ -24,6 +24,11 @@ export type AuthServiceOptions = {
 
 const EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
+export const REGISTRATION_FAILED_MESSAGE =
+  "Registration failed. If you already have an account, try logging in or resending verification.";
+
+export const EMAIL_UNAVAILABLE_MESSAGE = "Unable to update email address";
+
 export class AuthService {
   private readonly db: PrismDatabase;
   private readonly sendEmail: EmailSender;
@@ -63,12 +68,9 @@ export class AuthService {
     const existingUsername = this.db
       .prepare("SELECT id FROM users WHERE username = ? COLLATE NOCASE")
       .get(username);
-    if (existingUsername) throw new AuthError("Username is already taken");
-
-    const existingEmail = this.db
-      .prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE")
-      .get(email);
-    if (existingEmail) throw new AuthError("Email is already registered");
+    if (existingUsername || this.db.prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE").get(email)) {
+      throw new AuthError(REGISTRATION_FAILED_MESSAGE);
+    }
 
     const id = randomUUID();
     const createdAt = this.now();
@@ -107,13 +109,11 @@ export class AuthService {
         }
       | undefined;
 
-    if (!row || !verifyPassword(password, row.password_hash)) {
+    if (!row || !verifyPassword(password, row.password_hash) || !row.email_verified) {
       throw new AuthError("Invalid username or password");
     }
-    if (!row.email_verified) {
-      throw new AuthError("Email address is not verified yet");
-    }
 
+    this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(row.id);
     const sessionToken = this.createSession(row.id);
     return { user: this.mapUser(row), sessionToken };
   }
@@ -215,13 +215,14 @@ export class AuthService {
     const existing = this.db
       .prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id != ?")
       .get(email, userId);
-    if (existing) throw new AuthError("Email is already registered");
+    if (existing) throw new AuthError(EMAIL_UNAVAILABLE_MESSAGE);
 
     const updatedAt = this.now();
     this.db
       .prepare("UPDATE users SET email = ?, email_verified = 0, updated_at = ? WHERE id = ?")
       .run(email, updatedAt, userId);
 
+    this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
     this.db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(userId);
     const verificationToken = this.createVerificationToken(userId);
     const emailContent = buildVerificationEmail(this.appBaseUrl, verificationToken);

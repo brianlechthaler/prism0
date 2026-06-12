@@ -36,7 +36,11 @@ export const testConfig: AppConfig = {
   databasePath: ":memory:",
   appBaseUrl: "http://127.0.0.1:8787",
   sessionTtlMs: 60_000,
-  authExposeVerificationToken: true
+  authExposeVerificationToken: true,
+  authRateLimitWindowMs: 60_000,
+  authRateLimitMax: 100,
+  authLoginMaxFailures: 100,
+  authLoginLockoutMs: 60_000
 };
 
 export type TestServices = {
@@ -71,10 +75,7 @@ export function createTestApp(
   const app = express();
   app.use(express.json());
   app.use(createAuthMiddleware(services.auth));
-  registerAuthRoutes(app, services.auth, services.projects, services.history, {
-    sessionTtlMs: config.sessionTtlMs,
-    exposeVerificationToken: config.authExposeVerificationToken
-  });
+  registerAuthRoutes(app, services.auth, services.projects, services.history, config);
   registerProjectRoutes(app, services.projects, store);
   registerHostingRoutes(app, services.projects);
   registerRoutes(app, config, store, { history: services.history });
@@ -130,7 +131,12 @@ export async function registerAndLogin(
   expect(registerRes.status).toBe(201);
   const registerJson = (await registerRes.json()) as { verificationToken: string };
   const verifyRes = await fetch(
-    `http://127.0.0.1:${port}/api/auth/verify-email?token=${encodeURIComponent(registerJson.verificationToken)}`
+    `http://127.0.0.1:${port}/api/auth/verify-email`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: registerJson.verificationToken })
+    }
   );
   expect(verifyRes.status).toBe(200);
 

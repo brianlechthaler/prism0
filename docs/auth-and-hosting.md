@@ -43,8 +43,8 @@ Frontend:
 1. User opens `/register` and submits username (3–32 chars, `[a-zA-Z0-9_]`), email, and password (min 8 chars).
 2. Backend creates the user with `email_verified = 0`, stores a scrypt password hash, and creates a 24-hour verification token.
 3. A verification email is sent (logged to stdout in development via the console email sender).
-4. User visits `/verify-email?token=…` (from the email link) or uses the verify page UI.
-5. `GET /api/auth/verify-email?token=…` marks the account verified and deletes the token.
+4. User visits `/verify-email#token=…` (from the email link; token is in the URL fragment, not server logs) or uses the verify page UI.
+5. `POST /api/auth/verify-email` with `{ "token": "…" }` marks the account verified and deletes the token.
 6. User logs in at `/login`.
 
 **Development:** set `AUTH_EXPOSE_VERIFICATION_TOKEN=true` to include `verificationToken` in register/resend API responses so you can verify without reading server logs. **Do not enable in production.**
@@ -119,7 +119,7 @@ All auth routes are under `/api/auth`. Unless noted, errors return `400` with a 
 | `POST` | `/api/auth/register` | No | Body: `{ username, email, password }`. Returns `{ user, verificationToken? }` |
 | `POST` | `/api/auth/login` | No | Body: `{ username, password }`. Sets session cookie; returns `{ user }` |
 | `POST` | `/api/auth/logout` | Yes | Clears session |
-| `GET` | `/api/auth/verify-email` | No | Query: `token`. Returns `{ verified: true, user }` |
+| `POST` | `/api/auth/verify-email` | No | Body: `{ token }`. Returns `{ verified: true, user }` |
 | `POST` | `/api/auth/resend-verification` | No | Body: `{ username, password }`. Sends new token |
 | `PATCH` | `/api/auth/profile` | Yes | Body: `{ displayName: string \| null }` |
 | `POST` | `/api/auth/change-email` | Yes | Body: `{ email, password }`. Resets verification; clears session cookie |
@@ -205,7 +205,11 @@ The Docker image compiles `better-sqlite3` in the build stage and copies the nat
 | `DATABASE_PATH` | `./data/prism0.db` | SQLite database file path |
 | `APP_BASE_URL` | `http://localhost:8787` | Base URL for verification links in emails |
 | `SESSION_TTL_MS` | `604800000` (7 days) | Session cookie / DB expiry |
-| `AUTH_EXPOSE_VERIFICATION_TOKEN` | `false` | Return verification tokens in API JSON (dev/tests only) |
+| `AUTH_EXPOSE_VERIFICATION_TOKEN` | `false` | Return verification tokens in API JSON (dev/tests only; forced off in production) |
+| `AUTH_RATE_LIMIT_WINDOW_MS` | `60000` | Per-IP window for register/login/resend/verify |
+| `AUTH_RATE_LIMIT_MAX` | `20` | Max auth requests per IP per window |
+| `AUTH_LOGIN_MAX_FAILURES` | `5` | Failed logins per username before lockout |
+| `AUTH_LOGIN_LOCKOUT_MS` | `900000` | Lockout duration after max failures (15 min) |
 
 All existing generation-related variables (`OPENAI_*`, `MAX_RUNS`, rate limits, etc.) still apply. See `.env.example` and [README.md](../README.md).
 
@@ -216,7 +220,7 @@ Production deployments need a real email sender. The current implementation uses
 Verification emails contain a link:
 
 ```text
-{APP_BASE_URL}/verify-email?token={token}
+{APP_BASE_URL}/verify-email#token={token}
 ```
 
 Set `APP_BASE_URL` to the public HTTPS origin users will open in the browser.
@@ -227,15 +231,21 @@ Set `APP_BASE_URL` to the public HTTPS origin users will open in the browser.
 
 - HttpOnly session cookies, `SameSite=Lax`, `Secure` in production
 - scrypt password hashing with timing-safe comparison
-- Email verification gate before login
+- Email verification gate before login (generic login error for unverified accounts)
+- Per-IP rate limits on register, login, resend-verification, and verify-email
+- Per-username login lockout after repeated failures
+- Generic registration errors (no username/email enumeration)
+- Email verification via `POST` API; email links use URL fragments (`#token=`)
+- Session rotation on login (prior sessions invalidated)
+- Open-redirect protection on post-login navigation (`safeRedirectPath`)
+- `AUTH_EXPOSE_VERIFICATION_TOKEN` forced off when `NODE_ENV=production`
 - Owner checks on project APIs (`userId` match → 404 to avoid IDOR hints)
 - Parameterized SQL queries
 - Password required for email change, password change, and account deletion
-- Password change invalidates all sessions
+- Password and email change invalidate server-side sessions
 
 **Operators should plan for:**
 
-- Login/register rate limiting (not yet implemented; generation endpoints are rate-limited)
 - Real email delivery and correct `APP_BASE_URL`
 - Database backups and encrypted volumes
 - Treat manage URLs (`/manage/:editToken`) as secrets

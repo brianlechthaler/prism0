@@ -154,7 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const verifyEmail = useCallback(async (token: string) => {
-    const res = await apiFetch(`/api/auth/verify-email?token=${encodeURIComponent(token)}`);
+    const res = await apiFetch("/api/auth/verify-email", { method: "POST", json: { token } });
     if (!res.ok) throw new Error(await readApiError(res));
     const json = (await res.json()) as { user: PublicUser };
     setUser(json.user);

@@ -3,6 +3,14 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { AuthShell } from "./LoginPage";
 
+function readVerificationToken(searchParams: URLSearchParams, locationHash: string): string | null {
+  const hash = locationHash || window.location.hash;
+  if (hash.startsWith("#token=")) {
+    return decodeURIComponent(hash.slice("#token=".length));
+  }
+  return searchParams.get("token");
+}
+
 export function VerifyEmailPage() {
   const { verifyEmail, resendVerification } = useAuth();
   const [searchParams] = useSearchParams();
@@ -21,7 +29,7 @@ export function VerifyEmailPage() {
       : "";
 
   useEffect(() => {
-    const token = searchParams.get("token");
+    const token = readVerificationToken(searchParams, location.hash);
     if (!token) return;
 
     void verifyEmail(token)
@@ -32,7 +40,7 @@ export function VerifyEmailPage() {
       .catch((verifyError) => {
         setError(verifyError instanceof Error ? verifyError.message : String(verifyError));
       });
-  }, [searchParams, verifyEmail]);
+  }, [location.hash, searchParams, verifyEmail]);
 
   const resend = async (event: React.FormEvent) => {
     event.preventDefault();

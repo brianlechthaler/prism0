@@ -54,6 +54,20 @@ describe("LoginPage", () => {
     });
   });
 
+  it("blocks open redirects after login", async () => {
+    useAuthMock.login.mockResolvedValue(undefined);
+
+    renderLoginAt("/login", { from: "https://evil.example" });
+
+    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "testuser" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "secret123" } });
+    fireEvent.click(screen.getByRole("button", { name: /log in/i }));
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith("/dashboard", { replace: true });
+    });
+  });
+
   it("navigates to the requested route after login", async () => {
     useAuthMock.login.mockResolvedValue(undefined);
 

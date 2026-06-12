@@ -57,10 +57,7 @@ export function createApp(
   app.use(createAuthMiddleware(services.auth));
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
-  registerAuthRoutes(app, services.auth, services.projects, services.history, {
-    sessionTtlMs: config.sessionTtlMs,
-    exposeVerificationToken: config.authExposeVerificationToken
-  });
+  registerAuthRoutes(app, services.auth, services.projects, services.history, config);
   registerProjectRoutes(app, services.projects, store);
   registerHostingRoutes(app, services.projects);
   registerRoutes(app, config, store, { history: services.history });

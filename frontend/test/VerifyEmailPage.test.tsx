@@ -30,7 +30,22 @@ describe("VerifyEmailPage", () => {
     resendVerificationMock.mockReset();
   });
 
-  it("verifies email automatically when a token is present", async () => {
+  it("verifies email automatically when a hash token is present", async () => {
+    verifyEmailMock.mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter initialEntries={["/verify-email#token=hash-token"]}>
+        <Routes>
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/email verified/i)).toBeInTheDocument();
+    expect(verifyEmailMock).toHaveBeenCalledWith("hash-token");
+  });
+
+  it("verifies email automatically when a query token is present", async () => {
     verifyEmailMock.mockResolvedValue(undefined);
 
     render(
