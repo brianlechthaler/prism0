@@ -7,7 +7,7 @@ import { buildVerificationEmail } from "./email.js";
 export type PublicUser = {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
   emailVerified: boolean;
   displayName: string | null;
   createdAt: number;
@@ -48,17 +48,17 @@ export class AuthService {
 
   register(input: {
     username: string;
-    email: string;
+    email?: string;
     password: string;
   }): { user: PublicUser; verificationToken?: string } {
     const username = input.username.trim();
-    const email = input.email.trim().toLowerCase();
+    const email = input.email?.trim().toLowerCase() ?? null;
     const password = input.password;
 
     if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
       throw new AuthError("Username must be 3-32 characters and use letters, numbers, or underscores");
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new AuthError("Invalid email address");
     }
     if (password.length < 8) {
@@ -68,18 +68,26 @@ export class AuthService {
     const existingUsername = this.db
       .prepare("SELECT id FROM users WHERE username = ? COLLATE NOCASE")
       .get(username);
-    if (existingUsername || this.db.prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE").get(email)) {
+    if (
+      existingUsername ||
+      (email && this.db.prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE").get(email))
+    ) {
       throw new AuthError(REGISTRATION_FAILED_MESSAGE);
     }
 
     const id = randomUUID();
     const createdAt = this.now();
+    const emailVerified = email ? 0 : 1;
     this.db
       .prepare(
         `INSERT INTO users (id, username, email, email_verified, password_hash, display_name, created_at, updated_at)
-         VALUES (?, ?, ?, 0, ?, NULL, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
       )
-      .run(id, username, email, hashPassword(password), createdAt, createdAt);
+      .run(id, username, email, emailVerified, hashPassword(password), createdAt, createdAt);
+
+    if (!email) {
+      return { user: this.getPublicUser(id)! };
+    }
 
     const verificationToken = this.createVerificationToken(id);
     const emailContent = buildVerificationEmail(this.appBaseUrl, verificationToken);
@@ -97,19 +105,13 @@ export class AuthService {
         `SELECT id, username, email, email_verified, password_hash, display_name, created_at
          FROM users WHERE username = ? COLLATE NOCASE`
       )
-      .get(username.trim()) as
-      | {
-          id: string;
-          username: string;
-          email: string;
-          email_verified: number;
-          password_hash: string;
-          display_name: string | null;
-          created_at: number;
-        }
-      | undefined;
+      .get(username.trim()) as (UserRow & { password_hash: string }) | undefined;
 
-    if (!row || !verifyPassword(password, row.password_hash) || !row.email_verified) {
+    if (
+      !row ||
+      !verifyPassword(password, row.password_hash) ||
+      !this.isEmailVerificationSatisfied(row.email, row.email_verified)
+    ) {
       throw new AuthError("Invalid username or password");
     }
 
@@ -130,17 +132,7 @@ export class AuthService {
          JOIN users u ON u.id = s.user_id
          WHERE s.token = ?`
       )
-      .get(sessionToken) as
-      | {
-          id: string;
-          username: string;
-          email: string;
-          email_verified: number;
-          display_name: string | null;
-          created_at: number;
-          expires_at: number;
-        }
-      | undefined;
+      .get(sessionToken) as (UserRow & { expires_at: number }) | undefined;
 
     if (!row) return undefined;
     if (row.expires_at <= this.now()) {
@@ -176,12 +168,13 @@ export class AuthService {
     const row = this.db
       .prepare("SELECT id, email, email_verified, password_hash FROM users WHERE username = ? COLLATE NOCASE")
       .get(username.trim()) as
-      | { id: string; email: string; email_verified: number; password_hash: string }
+      | { id: string; email: string | null; email_verified: number; password_hash: string }
       | undefined;
 
     if (!row || !verifyPassword(password, row.password_hash)) {
       throw new AuthError("Invalid username or password");
     }
+    if (!row.email) throw new AuthError("No email address on this account");
     if (row.email_verified) throw new AuthError("Email is already verified");
 
     this.db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(row.id);
@@ -280,16 +273,7 @@ export class AuthService {
         `SELECT id, username, email, email_verified, display_name, created_at
          FROM users WHERE id = ?`
       )
-      .get(userId) as
-      | {
-          id: string;
-          username: string;
-          email: string;
-          email_verified: number;
-          display_name: string | null;
-          created_at: number;
-        }
-      | undefined;
+      .get(userId) as UserRow | undefined;
     return row ? this.mapUser(row) : undefined;
   }
 
@@ -301,14 +285,11 @@ export class AuthService {
     return row;
   }
 
-  private mapUser(row: {
-    id: string;
-    username: string;
-    email: string;
-    email_verified: number;
-    display_name: string | null;
-    created_at: number;
-  }): PublicUser {
+  private isEmailVerificationSatisfied(email: string | null, emailVerified: number): boolean {
+    return !email || Boolean(emailVerified);
+  }
+
+  private mapUser(row: UserRow): PublicUser {
     return {
       id: row.id,
       username: row.username,
@@ -319,6 +300,15 @@ export class AuthService {
     };
   }
 }
+
+type UserRow = {
+  id: string;
+  username: string;
+  email: string | null;
+  email_verified: number;
+  display_name: string | null;
+  created_at: number;
+};
 
 export class AuthError extends Error {
   constructor(message: string) {

@@ -1,6 +1,6 @@
 # Authentication, accounts, and hosted projects
 
-prism0 includes username/password accounts with email verification, a per-user dashboard, and the ability to **publish** generated apps to stable public URLs. Generation and most API routes require a verified session.
+prism0 includes username/password accounts with optional email verification, a per-user dashboard, and the ability to **publish** generated apps to stable public URLs. Generation and most API routes require a logged-in session.
 
 This document covers user flows, routes, APIs, persistence, configuration, and production notes. For generation pipeline details, see [architecture.md](./architecture.md).
 
@@ -8,7 +8,7 @@ This document covers user flows, routes, APIs, persistence, configuration, and p
 
 | Area | Summary |
 | --- | --- |
-| **Accounts** | Register with username, email, and password. Email must be verified before login. |
+| **Accounts** | Register with username and password. Email is optional; when provided, it must be verified before login. |
 | **Sessions** | HttpOnly cookie `prism0_session` (7-day default TTL). |
 | **Persistence** | SQLite via `better-sqlite3` at `DATABASE_PATH` (default `./data/prism0.db`). |
 | **Dashboard** | Projects, generation history, token usage, profile settings. |
@@ -34,18 +34,19 @@ Frontend:
 - `frontend/src/ui/App.tsx` — React Router routes
 - `frontend/src/ui/SplashPage.tsx`, `LoginPage.tsx`, `RegisterPage.tsx`, `VerifyEmailPage.tsx`
 - `frontend/src/ui/DashboardPage.tsx`, `GeneratorApp.tsx`, `ProjectManagePage.tsx`
-- `frontend/src/ui/ProtectedRoute.tsx` — requires login + verified email
+- `frontend/src/ui/ProtectedRoute.tsx` — requires login; redirects to verify when email is pending
 
 ## User flows
 
 ### Registration and verification
 
-1. User opens `/register` and submits username (3–32 chars, `[a-zA-Z0-9_]`), email, and password (min 8 chars).
-2. Backend creates the user with `email_verified = 0`, stores a scrypt password hash, and creates a 24-hour verification token.
-3. A verification email is sent (logged to stdout in development via the console email sender).
-4. User visits `/verify-email#token=…` (from the email link; token is in the URL fragment, not server logs) or uses the verify page UI.
-5. `POST /api/auth/verify-email` with `{ "token": "…" }` marks the account verified and deletes the token.
-6. User logs in at `/login`.
+1. User opens `/register` and submits username (3–32 chars, `[a-zA-Z0-9_]`) and password (min 8 chars). Email is optional.
+2. **Without email:** backend stores `email = NULL`, sets `email_verified = 1`, and the user can log in immediately.
+3. **With email:** backend creates the user with `email_verified = 0`, stores a scrypt password hash, and creates a 24-hour verification token.
+4. A verification email is sent when an address was provided (logged to stdout in development via the console email sender).
+5. User visits `/verify-email#token=…` (from the email link; token is in the URL fragment, not server logs) or uses the verify page UI.
+6. `POST /api/auth/verify-email` with `{ "token": "…" }` marks the account verified and deletes the token.
+7. User logs in at `/login`. Users with a pending email cannot log in until verified; users without email are not gated on verification.
 
 **Development:** set `AUTH_EXPOSE_VERIFICATION_TOKEN=true` to include `verificationToken` in register/resend API responses so you can verify without reading server logs. **Do not enable in production.**
 
@@ -116,7 +117,7 @@ All auth routes are under `/api/auth`. Unless noted, errors return `400` with a 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
 | `GET` | `/api/auth/me` | Optional | `{ authenticated, user? }` from session cookie |
-| `POST` | `/api/auth/register` | No | Body: `{ username, email, password }`. Returns `{ user, verificationToken? }` |
+| `POST` | `/api/auth/register` | No | Body: `{ username, password, email? }`. Returns `{ user, verificationToken? }` |
 | `POST` | `/api/auth/login` | No | Body: `{ username, password }`. Sets session cookie; returns `{ user }` |
 | `POST` | `/api/auth/logout` | Yes | Clears session |
 | `POST` | `/api/auth/verify-email` | No | Body: `{ token }`. Returns `{ verified: true, user }` |

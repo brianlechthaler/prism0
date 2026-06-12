@@ -76,6 +76,24 @@ describe("ProtectedRoute", () => {
     expect(screen.queryByText("secret")).not.toBeInTheDocument();
   });
 
+  it("renders children for users without email addresses", () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: "user-1",
+        username: "testuser",
+        email: null,
+        emailVerified: false,
+        displayName: null,
+        createdAt: 1
+      },
+      isLoading: false
+    });
+
+    renderProtectedRoute();
+
+    expect(screen.getByText("secret")).toBeInTheDocument();
+  });
+
   it("renders children for verified users", () => {
     useAuthMock.mockReturnValue({
       user: {

@@ -114,6 +114,7 @@ export function DashboardPage() {
         </section>
 
         <ProfileSettings
+          currentEmail={dashboard?.user.email ?? user?.email ?? null}
           displayName={displayName}
           onDisplayNameChange={setDisplayName}
           onSaveProfile={(event) => void saveProfile(event)}
@@ -128,6 +129,7 @@ export function DashboardPage() {
 }
 
 function ProfileSettings({
+  currentEmail,
   displayName,
   onDisplayNameChange,
   onSaveProfile,
@@ -136,6 +138,7 @@ function ProfileSettings({
   onChangePassword,
   onDeleteAccount
 }: {
+  currentEmail: string | null;
   displayName: string;
   onDisplayNameChange: (value: string) => void;
   onSaveProfile: (event: React.FormEvent) => void;
@@ -176,12 +179,18 @@ function ProfileSettings({
         onSubmit={(event) => {
           event.preventDefault();
           void onChangeEmail(email, emailPassword)
-            .then(() => setMessage("Email updated. Verify your new address and log in again."))
+            .then(() =>
+              setMessage(
+                currentEmail
+                  ? "Email updated. Verify your new address and log in again."
+                  : "Email added. Verify your address and log in again."
+              )
+            )
             .catch((error) => setMessage(error instanceof Error ? error.message : String(error)));
         }}
       >
         <label className="label" htmlFor="new-email">
-          Change email
+          {currentEmail ? "Change email" : "Add email"}
         </label>
         <input
           id="new-email"

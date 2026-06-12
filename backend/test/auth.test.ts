@@ -21,6 +21,22 @@ function createAuth(options?: {
 }
 
 describe("AuthService", () => {
+  it("registers users without email and allows immediate login", () => {
+    const { auth, sendEmail } = createAuth();
+    const result = auth.register({
+      username: "no_email",
+      password: "password123"
+    });
+
+    expect(result.user.email).toBeNull();
+    expect(result.user.emailVerified).toBe(true);
+    expect(result.verificationToken).toBeUndefined();
+    expect(sendEmail).not.toHaveBeenCalled();
+
+    const session = auth.login("no_email", "password123");
+    expect(session.user.username).toBe("no_email");
+  });
+
   it("registers users and sends verification email", () => {
     const { auth, sendEmail } = createAuth();
     const result = auth.register({
@@ -49,6 +65,7 @@ describe("AuthService", () => {
   it("rejects invalid registration input", () => {
     const { auth } = createAuth();
     expect(() => auth.register({ username: "ab", email: "bad", password: "short" })).toThrow(AuthError);
+    expect(() => auth.register({ username: "ab", password: "short" })).toThrow(AuthError);
     expect(() =>
       auth.register({ username: "valid_user", email: "not-an-email", password: "password123" })
     ).toThrow(/Invalid email/);
@@ -151,6 +168,12 @@ describe("AuthService", () => {
     expect(verified.emailVerified).toBe(true);
   });
 
+  it("rejects resend when the account has no email", () => {
+    const { auth } = createAuth();
+    auth.register({ username: "no_email_resend", password: "password123" });
+    expect(() => auth.resendVerification("no_email_resend", "password123")).toThrow(/No email address/);
+  });
+
   it("resends verification emails for unverified users", () => {
     const { auth, sendEmail } = createAuth();
     auth.register({ username: "resend", email: "resend@example.com", password: "password123" });
@@ -193,6 +216,15 @@ describe("AuthService", () => {
     const updated = auth.updateProfile(user.id, "  Display Name  ");
     expect(updated.displayName).toBe("Display Name");
     expect(() => auth.updateProfile(user.id, "x".repeat(65))).toThrow(/64 characters/);
+  });
+
+  it("adds email to accounts that were created without one", () => {
+    const { auth, sendEmail } = createAuth();
+    const { user } = auth.register({ username: "add_email_user", password: "password123" });
+    const updated = auth.changeEmail(user.id, "added@example.com", "password123");
+    expect(updated.email).toBe("added@example.com");
+    expect(updated.emailVerified).toBe(false);
+    expect(sendEmail).toHaveBeenCalledOnce();
   });
 
   it("changes email and resets verification state", () => {

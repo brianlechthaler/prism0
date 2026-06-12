@@ -6,7 +6,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  email TEXT UNIQUE COLLATE NOCASE,
   email_verified INTEGER NOT NULL DEFAULT 0,
   password_hash TEXT NOT NULL,
   display_name TEXT,
@@ -77,6 +77,31 @@ CREATE INDEX IF NOT EXISTS idx_generation_history_user_id ON generation_history(
 
 export type PrismDatabase = Database.Database;
 
+function migrateUsersEmailNullable(db: PrismDatabase): void {
+  const emailColumn = (
+    db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string; notnull: number }>
+  ).find((column) => column.name === "email");
+  if (!emailColumn || emailColumn.notnull === 0) return;
+
+  db.exec(`
+    CREATE TABLE users_email_migration (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      email TEXT UNIQUE COLLATE NOCASE,
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      password_hash TEXT NOT NULL,
+      display_name TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    INSERT INTO users_email_migration
+      SELECT id, username, email, email_verified, password_hash, display_name, created_at, updated_at
+      FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_email_migration RENAME TO users;
+  `);
+}
+
 export function openDatabase(databasePath: string): PrismDatabase {
   const dir = path.dirname(databasePath);
   fs.mkdirSync(dir, { recursive: true });
@@ -84,6 +109,7 @@ export function openDatabase(databasePath: string): PrismDatabase {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrateUsersEmailNullable(db);
   return db;
 }
 

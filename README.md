@@ -44,7 +44,7 @@ Type an idea (e.g. “make a tetris game”) and `prism0` generates a small brow
 
 ### Accounts, dashboard, and hosting
 
-- **User accounts** — Register with username, email, and password. Email verification is required before login.
+- **User accounts** — Register with username and password. Email is optional; when provided, verification is required before login.
 - **Sessions** — HttpOnly cookie (`prism0_session`); generation and most API routes require an authenticated, verified session.
 - **Dashboard** — `/dashboard` shows hosted projects, generation history, token usage, and profile settings.
 - **Publish to the web** — After a successful run, publish to a stable public URL at `/h/:slug` with a separate manage link at `/manage/:editToken` (page views, versioning, revert, delete).
@@ -146,7 +146,7 @@ CLI flags override environment variables when starting the backend (`npm run dev
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
 | `GET` | `/api/auth/me` | Optional | Current session: `{ authenticated, user? }` |
-| `POST` | `/api/auth/register` | No | `{ username, email, password }` → `{ user, verificationToken? }` |
+| `POST` | `/api/auth/register` | No | `{ username, password, email? }` → `{ user, verificationToken? }` |
 | `POST` | `/api/auth/login` | No | Sets `prism0_session` cookie; returns `{ user }` |
 | `POST` | `/api/auth/logout` | Yes | Clears session |
 | `POST` | `/api/auth/verify-email` | No | Body `{ token }` — verify email |

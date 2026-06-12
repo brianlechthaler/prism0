@@ -91,6 +91,21 @@ describe("useAuth", () => {
     await expect(result.current.login("bad", "creds")).rejects.toThrow("Invalid credentials");
   });
 
+  it("registers an account without email", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
+      .mockResolvedValueOnce(jsonResponse({}));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await expect(result.current.register("new-user", undefined, "password123")).resolves.toEqual({});
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/register", {
+      method: "POST",
+      json: { username: "new-user", password: "password123" }
+    });
+  });
+
   it("registers an account", async () => {
     apiFetchMock
       .mockResolvedValueOnce(jsonResponse({ authenticated: false }))

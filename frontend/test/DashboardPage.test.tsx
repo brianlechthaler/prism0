@@ -172,6 +172,28 @@ describe("DashboardPage", () => {
     });
   });
 
+  it("shows add-email messaging for accounts without an address", async () => {
+    authMocks.user = createMockUser({ email: null });
+    authMocks.loadDashboard.mockResolvedValue({
+      ...dashboardData,
+      user: createMockUser({ email: null })
+    });
+    authMocks.changeEmail.mockResolvedValue(undefined);
+
+    renderWithRouter(<DashboardPage />);
+    await screen.findByText(/welcome, test user/i);
+
+    expect(screen.getByLabelText(/add email/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/add email/i), { target: { value: "new@example.com" } });
+    fireEvent.change(screen.getAllByPlaceholderText(/current password/i)[0], {
+      target: { value: "secret123" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /update email/i }));
+
+    expect(await screen.findByText(/email added/i)).toBeInTheDocument();
+  });
+
   it("handles email, password, and account deletion flows", async () => {
     authMocks.changeEmail.mockResolvedValue(undefined);
     authMocks.changePassword.mockResolvedValue(undefined);

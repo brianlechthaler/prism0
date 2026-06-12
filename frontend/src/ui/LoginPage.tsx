@@ -17,6 +17,10 @@ export function LoginPage() {
       ? location.state.from
       : undefined
   );
+  const notice =
+    typeof location.state === "object" && location.state && "message" in location.state
+      ? String(location.state.message)
+      : undefined;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -60,6 +64,7 @@ export function LoginPage() {
           required
         />
 
+        {notice ? <div className="publishMessage">{notice}</div> : null}
         {error ? <div className="error">{error}</div> : null}
 
         <button className="btn" type="submit" disabled={isSubmitting}>

@@ -4,7 +4,7 @@ import { apiFetch, readApiError } from "../api";
 export type PublicUser = {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
   emailVerified: boolean;
   displayName: string | null;
   createdAt: number;
@@ -58,7 +58,7 @@ type AuthContextValue = {
   login: (username: string, password: string) => Promise<void>;
   register: (
     username: string,
-    email: string,
+    email: string | undefined,
     password: string
   ) => Promise<{ verificationToken?: string }>;
   logout: () => Promise<void>;
@@ -98,10 +98,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(json.user);
   }, []);
 
-  const register = useCallback(async (username: string, email: string, password: string) => {
+  const register = useCallback(async (username: string, email: string | undefined, password: string) => {
     const res = await apiFetch("/api/auth/register", {
       method: "POST",
-      json: { username, email, password }
+      json: email ? { username, email, password } : { username, password }
     });
     if (!res.ok) throw new Error(await readApiError(res));
     return (await res.json()) as { verificationToken?: string };

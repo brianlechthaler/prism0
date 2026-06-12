@@ -25,13 +25,31 @@ describe("RegisterPage", () => {
     navigateMock.mockReset();
   });
 
+  it("creates an account without email and navigates to login", async () => {
+    registerMock.mockResolvedValue({});
+
+    renderWithRouter(<RegisterPage />);
+
+    fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(registerMock).toHaveBeenCalledWith("newbie", undefined, "password123");
+      expect(navigateMock).toHaveBeenCalledWith("/login", {
+        replace: true,
+        state: { message: "Account created. Log in to continue." }
+      });
+    });
+  });
+
   it("creates an account and navigates to verify email", async () => {
     registerMock.mockResolvedValue({ verificationToken: "dev-token" });
 
     renderWithRouter(<RegisterPage />);
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: "new@example.com" } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "new@example.com" } });
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
@@ -50,7 +68,7 @@ describe("RegisterPage", () => {
     renderWithRouter(<RegisterPage />);
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: "new@example.com" } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "new@example.com" } });
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
@@ -63,7 +81,7 @@ describe("RegisterPage", () => {
     renderWithRouter(<RegisterPage />);
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: "new@example.com" } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "new@example.com" } });
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 

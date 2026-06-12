@@ -14,7 +14,10 @@ import type { ProjectStore } from "./projectStore.js";
 
 const RegisterSchema = z.object({
   username: z.string().trim().min(3).max(32),
-  email: z.string().trim().email().max(254),
+  email: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().trim().email().max(254).optional()
+  ),
   password: z.string().min(8).max(200)
 });
 

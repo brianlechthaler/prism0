@@ -23,7 +23,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 
-function renderLoginAt(pathname: string, state?: { from: string }) {
+function renderLoginAt(pathname: string, state?: { from?: string; message?: string }) {
   return render(
     <MemoryRouter initialEntries={[{ pathname, state }]}>
       <Routes>
@@ -80,6 +80,11 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith("/app", { replace: true });
     });
+  });
+
+  it("shows registration success notices", () => {
+    renderLoginAt("/login", { message: "Account created. Log in to continue." });
+    expect(screen.getByText(/account created/i)).toBeInTheDocument();
   });
 
   it("shows login errors", async () => {

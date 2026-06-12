@@ -18,12 +18,20 @@ export function RegisterPage() {
     setIsSubmitting(true);
     setError(undefined);
     try {
-      const result = await register(username, email, password);
+      const trimmedEmail = email.trim();
+      const result = await register(username, trimmedEmail || undefined, password);
       setVerificationToken(result.verificationToken);
-      navigate("/verify-email", {
-        replace: true,
-        state: { username, verificationToken: result.verificationToken }
-      });
+      if (trimmedEmail) {
+        navigate("/verify-email", {
+          replace: true,
+          state: { username, verificationToken: result.verificationToken }
+        });
+      } else {
+        navigate("/login", {
+          replace: true,
+          state: { message: "Account created. Log in to continue." }
+        });
+      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
@@ -32,7 +40,7 @@ export function RegisterPage() {
   };
 
   return (
-    <AuthShell title="Create account" subtitle="Secure accounts with email verification.">
+    <AuthShell title="Create account" subtitle="Email is optional. Add one to verify your account and enable recovery.">
       <form className="authForm" onSubmit={(event) => void submit(event)}>
         <label className="label" htmlFor="register-username">
           Username
@@ -47,7 +55,7 @@ export function RegisterPage() {
         />
 
         <label className="label" htmlFor="register-email">
-          Email
+          Email (optional)
         </label>
         <input
           id="register-email"
@@ -56,7 +64,6 @@ export function RegisterPage() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           autoComplete="email"
-          required
         />
 
         <label className="label" htmlFor="register-password">

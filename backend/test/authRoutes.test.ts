@@ -71,6 +71,35 @@ describe("authRoutes", () => {
     });
   });
 
+  it("registers accounts without email and allows immediate login", async () => {
+    const { app } = createTestApp();
+    await withServer(app, async (port) => {
+      const emptyEmailRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "empty_email_route", email: "", password: "password123" })
+      });
+      expect(emptyEmailRes.status).toBe(201);
+
+      const registerRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "no_email_route", password: "password123" })
+      });
+      expect(registerRes.status).toBe(201);
+      const registerJson = (await registerRes.json()) as { user: { email: string | null; emailVerified: boolean } };
+      expect(registerJson.user.email).toBeNull();
+      expect(registerJson.user.emailVerified).toBe(true);
+
+      const loginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "no_email_route", password: "password123" })
+      });
+      expect(loginRes.status).toBe(200);
+    });
+  });
+
   it("rejects invalid register payloads", async () => {
     const { app } = createTestApp();
     await withServer(app, async (port) => {
