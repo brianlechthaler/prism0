@@ -17,7 +17,7 @@ Type an idea (e.g. “make a tetris game”) and `prism0` generates a small brow
 - **Follow-up prompts** — After a run completes, choose **Update the current app** to apply incremental changes without starting over, or **Start a new app instead** for a fresh generation.
 - **Runtime repair** — Preview crashes and Sandpack bundler errors are reported to the UI. Click **Fix with LLM** to send the stack trace back to the model (`POST /api/generate/:runId/fix`). Runtime repairs always run validation.
 - **Validation repair** — If validation still fails after automatic retries, the UI shows the error and a **Fix with LLM** button (`POST /api/generate/:runId/validation-fix`).
-- **YOLO mode** — Optional fast path that skips the validation harness on initial generation and follow-ups. Repair flows still validate. Enable with `--enable-yolo-mode`.
+- **YOLO mode** — Optional fast path that skips the validation harness on initial generation and follow-ups. Repair flows still validate. Enabled on the backend by default; pass `--disable-yolo-mode` to turn off.
 
 ### Progress and observability
 
@@ -97,7 +97,7 @@ export OPENAI_MODEL="nvidia/nemotron-3-ultra-550b-a55b"
 
 The model picker and multi-model fallback feature is disabled by default. Start the backend with `--enable-model-picker` and set `OPENAI_MODELS` to a comma-separated list to populate the frontend picker and backend fallback order. For each generation, follow-up, or repair run, the backend tries the selected model first and falls back through the remaining configured entries if a model request fails.
 
-**YOLO mode** skips the backend validation harness (ESLint + Vitest) for faster generation. It is disabled by default; start the backend with `--enable-yolo-mode` to expose a checkbox in the UI. When enabled, the UI warns that output may be unsafe, broken, or fail in the preview. Repair flows still run validation.
+**YOLO mode** skips the backend validation harness (ESLint + Vitest) for faster generation. It is enabled by default on the backend, which exposes a checkbox in the UI. Pass `--disable-yolo-mode` to hide YOLO mode. When used, the UI warns that output may be unsafe, broken, or fail in the preview. Repair flows still run validation.
 
 ### Backend CLI flags
 
@@ -110,8 +110,8 @@ CLI flags override environment variables when starting the backend (`npm run dev
 | `--model <name>` | Sets `OPENAI_MODEL` |
 | `--enable-model-picker` | Enables the frontend model picker and multi-model fallback |
 | `--disable-model-picker` | Disables the model picker |
-| `--enable-yolo-mode` | Exposes the YOLO mode checkbox in the UI |
-| `--disable-yolo-mode` | Hides YOLO mode |
+| `--enable-yolo-mode` | Enables YOLO mode (default) |
+| `--disable-yolo-mode` | Disables YOLO mode and hides the UI checkbox |
 | `--host <host>` | Sets `HOST` |
 | `--port <port>` | Sets `PORT` |
 

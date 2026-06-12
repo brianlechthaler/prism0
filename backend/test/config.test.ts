@@ -9,7 +9,7 @@ describe("loadConfig", () => {
     expect(cfg.openaiModel).toBe("gpt-4.1-mini");
     expect(cfg.openaiModels).toEqual(["gpt-4.1-mini"]);
     expect(cfg.modelPickerEnabled).toBe(false);
-    expect(cfg.yoloModeEnabled).toBe(false);
+    expect(cfg.yoloModeEnabled).toBe(true);
     expect(cfg.host).toBe("0.0.0.0");
     expect(cfg.port).toBe(8787);
     expect(cfg.requestTimeoutMs).toBe(120_000);
@@ -95,9 +95,14 @@ describe("loadConfig", () => {
     expect(cfg.modelPickerEnabled).toBe(true);
   });
 
-  it("uses configured YOLO mode options only when enabled by CLI", () => {
-    const cfg = loadConfig({ OPENAI_API_KEY: "k" }, { yoloModeEnabled: true });
+  it("enables YOLO mode by default", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k" });
     expect(cfg.yoloModeEnabled).toBe(true);
+  });
+
+  it("allows YOLO mode to be disabled via CLI", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k" }, { yoloModeEnabled: false });
+    expect(cfg.yoloModeEnabled).toBe(false);
   });
 
   it("accepts false trust proxy override from env", () => {
