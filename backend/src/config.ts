@@ -84,7 +84,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
 
   const openaiModel = parsed.data.OPENAI_MODEL ?? "gpt-4.1-mini";
   const modelPickerEnabled = cli.modelPickerEnabled ?? false;
-  const yoloModeEnabled = cli.yoloModeEnabled ?? false;
+  const yoloModeEnabled = cli.yoloModeEnabled ?? true;
 
   return {
     openaiApiKey: parsed.data.OPENAI_API_KEY,
