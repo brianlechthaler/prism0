@@ -10,13 +10,64 @@ import {
 } from "./llm.js";
 import { parseGeneratedResponse } from "./parseGenerated.js";
 import { MAX_PARSE_ATTEMPTS, MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
+import { RunPausedError, RunStoppedError, throwIfAborted } from "./runControl.js";
 import type { RunStore } from "./runStore.js";
-import type { GeneratedProject, LlmCompletionUsage, LlmUsageKind, RunContextState } from "./types.js";
+import type {
+  GeneratedProject,
+  LlmCompletionUsage,
+  LlmUsageKind,
+  RunCheckpoint,
+  RunContextState
+} from "./types.js";
 import { estimateTokensFromText, RunUsageTracker } from "./usageTracker.js";
 import { validateGeneratedProject } from "./validateProject.js";
 
 function timestamp(): string {
   return new Date().toISOString();
+}
+
+function beginControlledRun(store: RunStore, runId: string): AbortSignal {
+  store.setStatus(runId, "running");
+  const existing = store.getAbortSignal(runId);
+  if (existing) return existing;
+  return store.attachAbortController(runId).signal;
+}
+
+function enrichCheckpointOnPause(
+  store: RunStore,
+  runId: string,
+  checkpoint: RunCheckpoint
+): RunCheckpoint {
+  if (checkpoint.stage === "llm" && !checkpoint.raw) {
+    const partial = store.get(runId)?.streams.content;
+    if (partial) {
+      return { ...checkpoint, raw: partial };
+    }
+  }
+  return checkpoint;
+}
+
+function handleControlError(
+  store: RunStore,
+  runId: string,
+  checkpoint: RunCheckpoint,
+  error: unknown
+): boolean {
+  if (error instanceof RunPausedError) {
+    store.appendLog(runId, `[${timestamp()}] Run paused; context retained for resume.`);
+    store.markPaused(runId, enrichCheckpointOnPause(store, runId, checkpoint));
+    return true;
+  }
+  if (error instanceof RunStoppedError) {
+    store.appendLog(runId, `[${timestamp()}] Run stopped by user.`);
+    store.markStopped(runId);
+    return true;
+  }
+  return false;
+}
+
+function llmOptions(selectedModel: string | undefined, signal: AbortSignal) {
+  return { selectedModel, signal };
 }
 
 function createLlmStreamHandlers(
@@ -66,13 +117,15 @@ async function parseProjectWithRetries(
   handlers: StreamHandlers = {},
   selectedModel?: string,
   project?: GeneratedProject,
-  contextState: RunContextState = {}
+  contextState: RunContextState = {},
+  signal?: AbortSignal
 ): Promise<{ project: GeneratedProject; idea: string; contextState: RunContextState }> {
   let currentIdea = idea;
   let currentContextState = contextState;
   let lastError: unknown = new Error("Failed to parse generated project JSON after retries");
 
   for (let attempt = 1; attempt <= MAX_PARSE_ATTEMPTS; attempt++) {
+    throwIfAborted(signal);
     try {
       return {
         project: parseGeneratedResponse(raw),
@@ -111,7 +164,7 @@ async function parseProjectWithRetries(
         raw,
         message,
         trackLlmUsage(store, tracker, runId, "json_fix", withModelAttemptLogs(store, runId, handlers)),
-        { selectedModel, contextSummary: currentContextState.contextSummary }
+        { selectedModel, contextSummary: currentContextState.contextSummary, signal }
       );
     }
   }
@@ -127,7 +180,8 @@ async function validateProjectWithRetries(
   idea: string,
   project: GeneratedProject,
   selectedModel?: string,
-  contextState: RunContextState = {}
+  contextState: RunContextState = {},
+  signal?: AbortSignal
 ): Promise<{ project: GeneratedProject; idea: string; contextState: RunContextState }> {
   store.appendLog(
     runId,
@@ -139,10 +193,17 @@ async function validateProjectWithRetries(
   let currentContextState = contextState;
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
+    throwIfAborted(signal);
     try {
-      await validateGeneratedProject(runId, currentProject.files, (line) => {
-        store.appendLog(runId, `[${timestamp()}] [validation] ${line}`);
-      });
+      await validateGeneratedProject(
+        runId,
+        currentProject.files,
+        (line) => {
+          store.appendLog(runId, `[${timestamp()}] [validation] ${line}`);
+        },
+        undefined,
+        signal
+      );
       return { project: currentProject, idea: currentIdea, contextState: currentContextState };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -188,7 +249,7 @@ async function validateProjectWithRetries(
               })
             )
           ),
-          { selectedModel }
+          { selectedModel, signal }
         );
 
         store.appendLog(runId, `[${timestamp()}] Parsing fixed JSON project payload…`);
@@ -202,7 +263,8 @@ async function validateProjectWithRetries(
           createLlmStreamHandlers(store, runId),
           selectedModel,
           currentProject,
-          currentContextState
+          currentContextState,
+          signal
         );
         currentProject = parsed.project;
         currentIdea = parsed.idea;
@@ -248,7 +310,8 @@ async function maybeValidateProject(
   project: GeneratedProject,
   selectedModel: string | undefined,
   contextState: RunContextState,
-  options: GenerationOptions = {}
+  options: GenerationOptions = {},
+  signal?: AbortSignal
 ): Promise<{ project: GeneratedProject; idea: string; contextState: RunContextState }> {
   if (options.skipValidation) {
     store.appendLog(runId, `[${timestamp()}] ${YOLO_SKIP_VALIDATION_LOG}`);
@@ -263,7 +326,8 @@ async function maybeValidateProject(
     idea,
     project,
     selectedModel,
-    contextState
+    contextState,
+    signal
   );
 }
 
@@ -275,10 +339,19 @@ export async function runGeneration(
   selectedModel?: string,
   options: GenerationOptions = {}
 ): Promise<void> {
+  const checkpoint: RunCheckpoint = {
+    kind: "generate",
+    stage: "llm",
+    idea,
+    selectedModel,
+    skipValidation: options.skipValidation,
+    contextState: {}
+  };
+  const signal = beginControlledRun(store, runId);
   const tracker = new RunUsageTracker(config.contextWindowTokens);
   let lastKnownFiles: Record<string, string> | undefined;
+
   try {
-    store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 run ${runId} started`);
     store.appendLog(runId, `[${timestamp()}] Idea received: "${idea}"`);
     if (options.skipValidation) {
@@ -296,15 +369,60 @@ export async function runGeneration(
       `[${timestamp()}] Configured model fallback order: ${config.openaiModels.join(" → ")}`
     );
 
+    const project = await executeGeneratePipeline(
+      config,
+      store,
+      tracker,
+      runId,
+      checkpoint,
+      signal,
+      options
+    );
+    lastKnownFiles = project.files;
+
+    store.appendLog(
+      runId,
+      options.skipValidation
+        ? `[${timestamp()}] Skipping validation (YOLO mode). Publishing files to editor/preview.`
+        : `[${timestamp()}] All checks passed. Publishing files to editor/preview.`
+    );
+    store.complete(runId, project.files, project.summary);
+  } catch (error) {
+    if (handleControlError(store, runId, checkpoint, error)) return;
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Run failed: ${message}`);
+    const files = lastKnownFiles ?? checkpoint.project?.files;
+    if (files) {
+      store.setFiles(runId, files);
+    }
+    store.fail(runId, message);
+  }
+}
+
+async function executeGeneratePipeline(
+  config: AppConfig,
+  store: RunStore,
+  tracker: RunUsageTracker,
+  runId: string,
+  checkpoint: RunCheckpoint,
+  signal: AbortSignal,
+  options: GenerationOptions,
+  resumeFrom?: Pick<RunCheckpoint, "stage" | "raw" | "project" | "contextState">
+): Promise<GeneratedProject> {
+  let raw = resumeFrom?.raw;
+  let project = resumeFrom?.project;
+  let currentIdea = checkpoint.idea;
+  let contextState = resumeFrom?.contextState ?? checkpoint.contextState;
+
+  if (!resumeFrom || resumeFrom.stage === "llm") {
+    checkpoint.stage = "llm";
     store.appendLog(runId, `[${timestamp()}] Building generation prompt with TDD requirements…`);
     store.appendLog(
       runId,
       `[${timestamp()}] Calling OpenAI-compatible chat completions API (streaming enabled)…`
     );
 
-    let streamedReasoningChars = 0;
     let sawStreamActivity = false;
-
     const heartbeat = setInterval(() => {
       if (sawStreamActivity) return;
       store.appendLog(
@@ -313,11 +431,10 @@ export async function runGeneration(
       );
     }, 15_000);
 
-    let raw: string;
     try {
       raw = await generateProjectFromIdea(
         config,
-        idea,
+        checkpoint.idea,
         trackLlmUsage(
           store,
           tracker,
@@ -334,71 +451,71 @@ export async function runGeneration(
             })
           )
         ),
-        { selectedModel }
+        llmOptions(checkpoint.selectedModel, signal)
       );
     } finally {
       clearInterval(heartbeat);
     }
 
-    streamedReasoningChars = store.get(runId)!.streams.thinking.length;
-
+    const streamedReasoningChars = store.get(runId)!.streams.thinking.length;
     store.appendLog(
       runId,
       `[${timestamp()}] Model response complete (${raw.length} chars total, ${streamedReasoningChars} reasoning chars)`
     );
+    checkpoint.raw = raw;
+  }
 
+  if (!resumeFrom || resumeFrom.stage === "llm" || resumeFrom.stage === "parse") {
+    if (!raw) {
+      throw new Error("Missing model response for parse stage");
+    }
+    checkpoint.stage = "parse";
     store.appendLog(runId, `[${timestamp()}] Parsing generated JSON project payload…`);
     const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      idea,
+      currentIdea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel
+      checkpoint.selectedModel,
+      project,
+      contextState,
+      signal
     );
-    let project = parsed.project;
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Parsed project summary: ${project.summary}`
-    );
-    lastKnownFiles = project.files;
+    project = parsed.project;
+    currentIdea = parsed.idea;
+    contextState = parsed.contextState;
+    checkpoint.project = project;
+    checkpoint.contextState = contextState;
+    store.appendLog(runId, `[${timestamp()}] Parsed project summary: ${project.summary}`);
     store.appendLog(
       runId,
       `[${timestamp()}] Generated files: ${Object.keys(project.files).join(", ")}`
     );
     logParsedProjectFiles(store, runId, project.files);
-
-    const validated = await maybeValidateProject(
-      config,
-      store,
-      tracker,
-      runId,
-      parsed.idea,
-      project,
-      selectedModel,
-      parsed.contextState,
-      options
-    );
-    project = validated.project;
-    lastKnownFiles = project.files;
-
-    store.appendLog(
-      runId,
-      options.skipValidation
-        ? `[${timestamp()}] Skipping validation (YOLO mode). Publishing files to editor/preview.`
-        : `[${timestamp()}] All checks passed. Publishing files to editor/preview.`
-    );
-    store.complete(runId, project.files, project.summary);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    store.appendLog(runId, `[${timestamp()}] Run failed: ${message}`);
-    if (lastKnownFiles) {
-      store.setFiles(runId, lastKnownFiles);
-    }
-    store.fail(runId, message);
   }
+
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
+  checkpoint.stage = "validate";
+  const validated = await maybeValidateProject(
+    config,
+    store,
+    tracker,
+    runId,
+    currentIdea,
+    project,
+    checkpoint.selectedModel,
+    contextState,
+    options,
+    signal
+  );
+  checkpoint.project = validated.project;
+  checkpoint.contextState = validated.contextState;
+  return validated.project;
 }
 
 export async function runFollowUp(
@@ -411,12 +528,22 @@ export async function runFollowUp(
   selectedModel?: string,
   options: GenerationOptions = {}
 ): Promise<void> {
-  const tracker = new RunUsageTracker(config.contextWindowTokens);
   const augmentedIdea = `${idea}\n\nFollow-up request: ${followUpPrompt}`;
+  const checkpoint: RunCheckpoint = {
+    kind: "follow_up",
+    stage: "llm",
+    idea: augmentedIdea,
+    selectedModel,
+    skipValidation: options.skipValidation,
+    contextState: {},
+    sourceProject: project,
+    followUpPrompt
+  };
+  const signal = beginControlledRun(store, runId);
+  const tracker = new RunUsageTracker(config.contextWindowTokens);
   let lastKnownFiles = project.files;
 
   try {
-    store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 follow-up run ${runId} started`);
     store.appendLog(runId, `[${timestamp()}] Original app idea: "${idea}"`);
     store.appendLog(runId, `[${timestamp()}] Follow-up prompt: "${followUpPrompt}"`);
@@ -426,15 +553,66 @@ export async function runFollowUp(
         `[${timestamp()}] YOLO mode enabled for this follow-up — validation harness will be skipped.`
       );
     }
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Requesting updates from model ${selectedModel || config.openaiModel}…`
-    );
 
-    const raw = await updateProjectFromFollowUp(
+    const updatedProject = await executeFollowUpPipeline(
       config,
+      store,
+      tracker,
+      runId,
+      checkpoint,
+      signal,
       idea,
       project,
+      followUpPrompt,
+      options
+    );
+    lastKnownFiles = updatedProject.files;
+
+    store.appendLog(
+      runId,
+      options.skipValidation
+        ? `[${timestamp()}] Follow-up validation skipped (YOLO mode). Publishing updated files.`
+        : `[${timestamp()}] Follow-up checks passed. Publishing updated files.`
+    );
+    store.complete(runId, updatedProject.files, updatedProject.summary);
+  } catch (error) {
+    if (handleControlError(store, runId, checkpoint, error)) return;
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Follow-up failed: ${message}`);
+    store.setFiles(runId, lastKnownFiles);
+    store.fail(runId, message);
+  }
+}
+
+async function executeFollowUpPipeline(
+  config: AppConfig,
+  store: RunStore,
+  tracker: RunUsageTracker,
+  runId: string,
+  checkpoint: RunCheckpoint,
+  signal: AbortSignal,
+  idea: string,
+  sourceProject: GeneratedProject,
+  followUpPrompt: string,
+  options: GenerationOptions,
+  resumeFrom?: Pick<RunCheckpoint, "stage" | "raw" | "project" | "contextState">
+): Promise<GeneratedProject> {
+  const augmentedIdea = checkpoint.idea;
+  let raw = resumeFrom?.raw;
+  let project = resumeFrom?.project;
+  let currentIdea = augmentedIdea;
+  let contextState = resumeFrom?.contextState ?? checkpoint.contextState;
+
+  if (!resumeFrom || resumeFrom.stage === "llm") {
+    checkpoint.stage = "llm";
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Requesting updates from model ${checkpoint.selectedModel || config.openaiModel}…`
+    );
+    raw = await updateProjectFromFollowUp(
+      config,
+      idea,
+      sourceProject,
       followUpPrompt,
       trackLlmUsage(
         store,
@@ -449,52 +627,58 @@ export async function runFollowUp(
           })
         )
       ),
-      { selectedModel }
+      llmOptions(checkpoint.selectedModel, signal)
     );
+    checkpoint.raw = raw;
+  }
 
+  if (!resumeFrom || resumeFrom.stage === "llm" || resumeFrom.stage === "parse") {
+    if (!raw) {
+      throw new Error("Missing model response for parse stage");
+    }
+    checkpoint.stage = "parse";
     store.appendLog(runId, `[${timestamp()}] Parsing follow-up JSON project payload…`);
     const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      augmentedIdea,
+      currentIdea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel,
-      project
+      checkpoint.selectedModel,
+      sourceProject,
+      contextState,
+      signal
     );
-    let updatedProject = parsed.project;
-    store.appendLog(runId, `[${timestamp()}] Follow-up summary: ${updatedProject.summary}`);
-    lastKnownFiles = updatedProject.files;
-    logParsedProjectFiles(store, runId, updatedProject.files);
-
-    const validated = await maybeValidateProject(
-      config,
-      store,
-      tracker,
-      runId,
-      parsed.idea,
-      updatedProject,
-      selectedModel,
-      parsed.contextState,
-      options
-    );
-    updatedProject = validated.project;
-
-    store.appendLog(
-      runId,
-      options.skipValidation
-        ? `[${timestamp()}] Follow-up validation skipped (YOLO mode). Publishing updated files.`
-        : `[${timestamp()}] Follow-up checks passed. Publishing updated files.`
-    );
-    store.complete(runId, updatedProject.files, updatedProject.summary);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    store.appendLog(runId, `[${timestamp()}] Follow-up failed: ${message}`);
-    store.setFiles(runId, lastKnownFiles);
-    store.fail(runId, message);
+    project = parsed.project;
+    currentIdea = parsed.idea;
+    contextState = parsed.contextState;
+    checkpoint.project = project;
+    checkpoint.contextState = contextState;
+    store.appendLog(runId, `[${timestamp()}] Follow-up summary: ${project.summary}`);
+    logParsedProjectFiles(store, runId, project.files);
   }
+
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
+  checkpoint.stage = "validate";
+  const validated = await maybeValidateProject(
+    config,
+    store,
+    tracker,
+    runId,
+    currentIdea,
+    project,
+    checkpoint.selectedModel,
+    contextState,
+    options,
+    signal
+  );
+  checkpoint.project = validated.project;
+  checkpoint.contextState = validated.contextState;
+  return validated.project;
 }
 
 export async function runRuntimeRepair(
@@ -506,22 +690,75 @@ export async function runRuntimeRepair(
   runtimeError: string,
   selectedModel?: string
 ): Promise<void> {
+  const checkpoint: RunCheckpoint = {
+    kind: "runtime_repair",
+    stage: "llm",
+    idea,
+    selectedModel,
+    contextState: {},
+    sourceProject: project,
+    runtimeError
+  };
+  const signal = beginControlledRun(store, runId);
   const tracker = new RunUsageTracker(config.contextWindowTokens);
   let lastKnownFiles = project.files;
+
   try {
-    store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 runtime repair ${runId} started`);
     store.appendLog(runId, `[${timestamp()}] Repairing app idea: "${idea}"`);
     store.appendLog(runId, `[${timestamp()}] Runtime error received: ${runtimeError}`);
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Requesting browser crash fixes from model ${selectedModel || config.openaiModel}…`
-    );
 
-    const raw = await fixProjectFromRuntimeError(
+    const repairedProject = await executeRuntimeRepairPipeline(
       config,
+      store,
+      tracker,
+      runId,
+      checkpoint,
+      signal,
       idea,
       project,
+      runtimeError
+    );
+    lastKnownFiles = repairedProject.files;
+
+    store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
+    store.complete(runId, repairedProject.files, repairedProject.summary);
+  } catch (error) {
+    if (handleControlError(store, runId, checkpoint, error)) return;
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
+    store.setFiles(runId, lastKnownFiles);
+    store.fail(runId, message);
+  }
+}
+
+async function executeRuntimeRepairPipeline(
+  config: AppConfig,
+  store: RunStore,
+  tracker: RunUsageTracker,
+  runId: string,
+  checkpoint: RunCheckpoint,
+  signal: AbortSignal,
+  idea: string,
+  sourceProject: GeneratedProject,
+  runtimeError: string,
+  resumeFrom?: Pick<RunCheckpoint, "stage" | "raw" | "project" | "contextState">
+): Promise<GeneratedProject> {
+  let raw = resumeFrom?.raw;
+  let project = resumeFrom?.project;
+  let currentIdea = idea;
+  let contextState = resumeFrom?.contextState ?? checkpoint.contextState;
+
+  if (!resumeFrom || resumeFrom.stage === "llm") {
+    checkpoint.stage = "llm";
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Requesting browser crash fixes from model ${checkpoint.selectedModel || config.openaiModel}…`
+    );
+    raw = await fixProjectFromRuntimeError(
+      config,
+      idea,
+      sourceProject,
       runtimeError,
       trackLlmUsage(
         store,
@@ -536,49 +773,57 @@ export async function runRuntimeRepair(
           })
         )
       ),
-      { selectedModel }
+      llmOptions(checkpoint.selectedModel, signal)
     );
+    checkpoint.raw = raw;
+  }
 
+  if (!resumeFrom || resumeFrom.stage === "llm" || resumeFrom.stage === "parse") {
+    if (!raw) {
+      throw new Error("Missing model response for parse stage");
+    }
+    checkpoint.stage = "parse";
     store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
     const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      idea,
+      currentIdea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel,
-      project
+      checkpoint.selectedModel,
+      sourceProject,
+      contextState,
+      signal
     );
-    let repairedProject = parsed.project;
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Runtime repair summary: ${repairedProject.summary}`
-    );
-    lastKnownFiles = repairedProject.files;
-    logParsedProjectFiles(store, runId, repairedProject.files);
-
-    const validated = await validateProjectWithRetries(
-      config,
-      store,
-      tracker,
-      runId,
-      parsed.idea,
-      repairedProject,
-      selectedModel,
-      parsed.contextState
-    );
-    repairedProject = validated.project;
-
-    store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
-    store.complete(runId, repairedProject.files, repairedProject.summary);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
-    store.setFiles(runId, lastKnownFiles);
-    store.fail(runId, message);
+    project = parsed.project;
+    currentIdea = parsed.idea;
+    contextState = parsed.contextState;
+    checkpoint.project = project;
+    checkpoint.contextState = contextState;
+    store.appendLog(runId, `[${timestamp()}] Runtime repair summary: ${project.summary}`);
+    logParsedProjectFiles(store, runId, project.files);
   }
+
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
+  checkpoint.stage = "validate";
+  const validated = await validateProjectWithRetries(
+    config,
+    store,
+    tracker,
+    runId,
+    currentIdea,
+    project,
+    checkpoint.selectedModel,
+    contextState,
+    signal
+  );
+  checkpoint.project = validated.project;
+  checkpoint.contextState = validated.contextState;
+  return validated.project;
 }
 
 export async function runValidationRepair(
@@ -590,22 +835,78 @@ export async function runValidationRepair(
   validationError: string,
   selectedModel?: string
 ): Promise<void> {
+  const checkpoint: RunCheckpoint = {
+    kind: "validation_repair",
+    stage: "llm",
+    idea,
+    selectedModel,
+    contextState: {},
+    sourceProject: project,
+    validationError
+  };
+  const signal = beginControlledRun(store, runId);
   const tracker = new RunUsageTracker(config.contextWindowTokens);
   let lastKnownFiles = project.files;
+
   try {
-    store.setStatus(runId, "running");
     store.appendLog(runId, `[${timestamp()}] prism0 validation repair ${runId} started`);
     store.appendLog(runId, `[${timestamp()}] Repairing app idea: "${idea}"`);
     store.appendLog(runId, `[${timestamp()}] Validation error received: ${validationError}`);
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Requesting validation fixes from model ${selectedModel || config.openaiModel}…`
-    );
 
-    const raw = await fixProjectFromValidationErrors(
+    const repairedProject = await executeValidationRepairPipeline(
       config,
+      store,
+      tracker,
+      runId,
+      checkpoint,
+      signal,
       idea,
       project,
+      validationError
+    );
+    lastKnownFiles = repairedProject.files;
+
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Validation repair checks passed. Publishing fixed files.`
+    );
+    store.complete(runId, repairedProject.files, repairedProject.summary);
+  } catch (error) {
+    if (handleControlError(store, runId, checkpoint, error)) return;
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendLog(runId, `[${timestamp()}] Validation repair failed: ${message}`);
+    store.setFiles(runId, lastKnownFiles);
+    store.fail(runId, message);
+  }
+}
+
+async function executeValidationRepairPipeline(
+  config: AppConfig,
+  store: RunStore,
+  tracker: RunUsageTracker,
+  runId: string,
+  checkpoint: RunCheckpoint,
+  signal: AbortSignal,
+  idea: string,
+  sourceProject: GeneratedProject,
+  validationError: string,
+  resumeFrom?: Pick<RunCheckpoint, "stage" | "raw" | "project" | "contextState">
+): Promise<GeneratedProject> {
+  let raw = resumeFrom?.raw;
+  let project = resumeFrom?.project;
+  let currentIdea = idea;
+  let contextState = resumeFrom?.contextState ?? checkpoint.contextState;
+
+  if (!resumeFrom || resumeFrom.stage === "llm") {
+    checkpoint.stage = "llm";
+    store.appendLog(
+      runId,
+      `[${timestamp()}] Requesting validation fixes from model ${checkpoint.selectedModel || config.openaiModel}…`
+    );
+    raw = await fixProjectFromValidationErrors(
+      config,
+      idea,
+      sourceProject,
       validationError,
       trackLlmUsage(
         store,
@@ -620,50 +921,159 @@ export async function runValidationRepair(
           })
         )
       ),
-      { selectedModel }
+      llmOptions(checkpoint.selectedModel, signal)
     );
+    checkpoint.raw = raw;
+  }
 
+  if (!resumeFrom || resumeFrom.stage === "llm" || resumeFrom.stage === "parse") {
+    if (!raw) {
+      throw new Error("Missing model response for parse stage");
+    }
+    checkpoint.stage = "parse";
     store.appendLog(runId, `[${timestamp()}] Parsing repaired JSON project payload…`);
     const parsed = await parseProjectWithRetries(
       config,
       store,
       tracker,
       runId,
-      idea,
+      currentIdea,
       raw,
       createLlmStreamHandlers(store, runId),
-      selectedModel,
-      project
+      checkpoint.selectedModel,
+      sourceProject,
+      contextState,
+      signal
     );
-    let repairedProject = parsed.project;
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Validation repair summary: ${repairedProject.summary}`
-    );
-    lastKnownFiles = repairedProject.files;
-    logParsedProjectFiles(store, runId, repairedProject.files);
+    project = parsed.project;
+    currentIdea = parsed.idea;
+    contextState = parsed.contextState;
+    checkpoint.project = project;
+    checkpoint.contextState = contextState;
+    store.appendLog(runId, `[${timestamp()}] Validation repair summary: ${project.summary}`);
+    logParsedProjectFiles(store, runId, project.files);
+  }
 
-    const validated = await validateProjectWithRetries(
-      config,
-      store,
-      tracker,
-      runId,
-      parsed.idea,
-      repairedProject,
-      selectedModel,
-      parsed.contextState
-    );
-    repairedProject = validated.project;
+  if (!project) {
+    throw new Error("Missing parsed project for validation stage");
+  }
+  checkpoint.stage = "validate";
+  const validated = await validateProjectWithRetries(
+    config,
+    store,
+    tracker,
+    runId,
+    currentIdea,
+    project,
+    checkpoint.selectedModel,
+    contextState,
+    signal
+  );
+  checkpoint.project = validated.project;
+  checkpoint.contextState = validated.contextState;
+  return validated.project;
+}
 
-    store.appendLog(
-      runId,
-      `[${timestamp()}] Validation repair checks passed. Publishing fixed files.`
-    );
-    store.complete(runId, repairedProject.files, repairedProject.summary);
+export async function resumeRun(
+  config: AppConfig,
+  store: RunStore,
+  runId: string
+): Promise<void> {
+  const checkpoint = store.resume(runId);
+  if (!checkpoint) {
+    throw new Error("Run is not paused or has no checkpoint");
+  }
+
+  const signal = store.attachAbortController(runId).signal;
+  const tracker = new RunUsageTracker(config.contextWindowTokens);
+  const resumeFrom = {
+    stage: checkpoint.stage,
+    raw: checkpoint.raw,
+    project: checkpoint.project,
+    contextState: checkpoint.contextState
+  };
+  let lastKnownFiles = checkpoint.project?.files;
+
+  try {
+    store.appendLog(runId, `[${timestamp()}] Resuming run from ${checkpoint.stage} stage…`);
+
+    let project: GeneratedProject;
+    if (checkpoint.kind === "generate") {
+      project = await executeGeneratePipeline(
+        config,
+        store,
+        tracker,
+        runId,
+        checkpoint,
+        signal,
+        { skipValidation: checkpoint.skipValidation },
+        resumeFrom
+      );
+    } else if (checkpoint.kind === "follow_up") {
+      if (!checkpoint.sourceProject || !checkpoint.followUpPrompt) {
+        throw new Error("Follow-up checkpoint is missing source project or prompt");
+      }
+      const originalIdea = checkpoint.idea.replace(
+        `\n\nFollow-up request: ${checkpoint.followUpPrompt}`,
+        ""
+      );
+      project = await executeFollowUpPipeline(
+        config,
+        store,
+        tracker,
+        runId,
+        checkpoint,
+        signal,
+        originalIdea,
+        checkpoint.sourceProject,
+        checkpoint.followUpPrompt,
+        { skipValidation: checkpoint.skipValidation },
+        resumeFrom
+      );
+    } else if (checkpoint.kind === "runtime_repair") {
+      if (!checkpoint.sourceProject || !checkpoint.runtimeError) {
+        throw new Error("Runtime repair checkpoint is missing source project or error");
+      }
+      project = await executeRuntimeRepairPipeline(
+        config,
+        store,
+        tracker,
+        runId,
+        checkpoint,
+        signal,
+        checkpoint.idea,
+        checkpoint.sourceProject,
+        checkpoint.runtimeError,
+        resumeFrom
+      );
+    } else {
+      if (!checkpoint.sourceProject || !checkpoint.validationError) {
+        throw new Error("Validation repair checkpoint is missing source project or error");
+      }
+      project = await executeValidationRepairPipeline(
+        config,
+        store,
+        tracker,
+        runId,
+        checkpoint,
+        signal,
+        checkpoint.idea,
+        checkpoint.sourceProject,
+        checkpoint.validationError,
+        resumeFrom
+      );
+    }
+
+    lastKnownFiles = project.files;
+    store.appendLog(runId, `[${timestamp()}] Resumed run completed successfully.`);
+    store.complete(runId, project.files, project.summary);
   } catch (error) {
+    if (handleControlError(store, runId, checkpoint, error)) return;
     const message = error instanceof Error ? error.message : String(error);
-    store.appendLog(runId, `[${timestamp()}] Validation repair failed: ${message}`);
-    store.setFiles(runId, lastKnownFiles);
+    store.appendLog(runId, `[${timestamp()}] Resumed run failed: ${message}`);
+    if (lastKnownFiles) {
+      store.setFiles(runId, lastKnownFiles);
+    }
     store.fail(runId, message);
   }
 }

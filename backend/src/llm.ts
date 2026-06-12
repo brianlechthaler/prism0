@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { AppConfig } from "./config.js";
+import { throwIfAborted, waitForAbort } from "./runControl.js";
 import {
   buildFixPrompt,
   buildFollowUpPrompt,
@@ -20,6 +21,7 @@ export type StreamHandlers = {
 
 export type ModelRequestOptions = {
   selectedModel?: string;
+  signal?: AbortSignal;
 };
 
 type LlmCallKind = Exclude<LlmUsageKind, "thinking">;
@@ -96,9 +98,17 @@ export async function streamProjectCompletion(
   let lastError: unknown = new Error("Model request failed");
 
   for (const [index, model] of models.entries()) {
+    throwIfAborted(options.signal);
     handlers.onModelAttempt?.(model, index + 1, models.length);
     try {
-      return await streamProjectCompletionWithModel(config, prompt, kind, model, handlers);
+      return await streamProjectCompletionWithModel(
+        config,
+        prompt,
+        kind,
+        model,
+        handlers,
+        options.signal
+      );
     } catch (error) {
       lastError = error;
       const nextModel = models[index + 1];
@@ -116,23 +126,28 @@ async function streamProjectCompletionWithModel(
   prompt: string,
   kind: LlmCallKind,
   model: string,
-  handlers: StreamHandlers = {}
+  handlers: StreamHandlers = {},
+  signal?: AbortSignal
 ): Promise<string> {
+  throwIfAborted(signal);
   const client = createOpenAiClient(config);
 
   const stream = await withTimeout(
-    client.chat.completions.create({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-      top_p: 0.95,
-      max_tokens: 16384,
-      stream: true,
-      stream_options: { include_usage: true },
-      // NVIDIA / reasoning-model compatibility (ignored by OpenAI).
-      reasoning_budget: 16384,
-      chat_template_kwargs: { enable_thinking: true }
-    } as OpenAI.Chat.ChatCompletionCreateParamsStreaming),
+    Promise.race([
+      client.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        top_p: 0.95,
+        max_tokens: 16384,
+        stream: true,
+        stream_options: { include_usage: true },
+        // NVIDIA / reasoning-model compatibility (ignored by OpenAI).
+        reasoning_budget: 16384,
+        chat_template_kwargs: { enable_thinking: true }
+      } as OpenAI.Chat.ChatCompletionCreateParamsStreaming),
+      waitForAbort(signal)
+    ]),
     config.requestTimeoutMs,
     `Model API request timed out after ${config.requestTimeoutMs / 1000}s for ${model} — the endpoint may be overloaded or unavailable.`
   );
@@ -146,12 +161,16 @@ async function streamProjectCompletionWithModel(
   const iterator = stream[Symbol.asyncIterator]();
 
   while (true) {
+    throwIfAborted(signal);
     if (Date.now() > hardDeadline) {
       throw new Error(`Model stream exceeded hard limit of ${STREAM_HARD_LIMIT_MS / 1000}s`);
     }
 
     const timeoutMs = sawFirstChunk ? STREAM_IDLE_CHUNK_MS : STREAM_FIRST_CHUNK_MS;
-    const { done, value: chunk } = await nextChunkWithTimeout(iterator, timeoutMs, sawFirstChunk);
+    const { done, value: chunk } = await Promise.race([
+      nextChunkWithTimeout(iterator, timeoutMs, sawFirstChunk),
+      waitForAbort(signal)
+    ]);
     if (done) break;
 
     sawFirstChunk = true;
