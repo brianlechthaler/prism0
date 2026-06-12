@@ -135,6 +135,12 @@ body {
   transform: translateY(-1px);
 }
 
+.inputCompact {
+  min-height: 0;
+  resize: none;
+  overflow: hidden;
+}
+
 .inputMultiline {
   min-height: 124px;
   resize: vertical;

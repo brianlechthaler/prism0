@@ -77,6 +77,17 @@ function buildPreviewErrorReporter(runId: string): string {
 
 type ReadySubmissionMode = "follow-up" | "new";
 
+export function shouldSubmitIdeaOnKeyDown(event: {
+  key: string;
+  code: string;
+  shiftKey: boolean;
+  isComposing: boolean;
+}): boolean {
+  if (event.isComposing) return false;
+  if (event.key !== "Enter" && event.code !== "Enter") return false;
+  return event.shiftKey;
+}
+
 export function withPreviewErrorReporter(
   files: Record<string, string>,
   runId: string
@@ -194,6 +205,8 @@ export function App() {
       : "Submit";
 
   const submitPrompt = () => {
+    if (isGenerating || !trimmedIdea) return;
+
     if (state.kind === "ready" && readySubmissionMode === "follow-up") {
       void followUp(state.runId, trimmedIdea, activeModel, generationOptions);
       return;
@@ -202,10 +215,15 @@ export function App() {
     void start(trimmedIdea, activeModel, generationOptions);
   };
 
-  const handleIdeaKeyDown = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || !event.shiftKey) return;
+  const expandIdeaField = () => {
+    setIsIdeaMultiline(true);
+  };
+
+  const handleIdeaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!shouldSubmitIdeaOnKeyDown(event.nativeEvent)) return;
+
     event.preventDefault();
-    if (isGenerating || !trimmedIdea) return;
+    event.stopPropagation();
     submitPrompt();
   };
 
@@ -230,41 +248,32 @@ export function App() {
           <label className="label" htmlFor="idea">
             {promptLabel}
           </label>
-          <div className="row">
-            {isIdeaMultiline ? (
-              <textarea
-                id="idea"
-                ref={ideaTextAreaRef}
-                className="input inputMultiline"
-                value={idea}
-                onChange={(e) => setIdea(e.target.value)}
-                onKeyDown={handleIdeaKeyDown}
-                placeholder={
-                  canFollowUp && readySubmissionMode === "follow-up"
-                    ? 'e.g. "add keyboard controls and a score history"'
-                    : 'e.g. "make a tetris game"'
-                }
-                rows={4}
-              />
-            ) : (
-              <input
-                id="idea"
-                className="input"
-                value={idea}
-                onChange={(e) => setIdea(e.target.value)}
-                onClick={() => setIsIdeaMultiline(true)}
-                onKeyDown={handleIdeaKeyDown}
-                placeholder={
-                  canFollowUp && readySubmissionMode === "follow-up"
-                    ? 'e.g. "add keyboard controls and a score history"'
-                    : 'e.g. "make a tetris game"'
-                }
-              />
-            )}
-            <button className="btn" onClick={submitPrompt} disabled={isGenerating || !trimmedIdea}>
+          <form
+            className="row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitPrompt();
+            }}
+          >
+            <textarea
+              id="idea"
+              ref={ideaTextAreaRef}
+              className={`input ${isIdeaMultiline ? "inputMultiline" : "inputCompact"}`}
+              value={idea}
+              onChange={(e) => setIdea(e.target.value)}
+              onFocus={expandIdeaField}
+              onKeyDown={handleIdeaKeyDown}
+              placeholder={
+                canFollowUp && readySubmissionMode === "follow-up"
+                  ? 'e.g. "add keyboard controls and a score history"'
+                  : 'e.g. "make a tetris game"'
+              }
+              rows={isIdeaMultiline ? 4 : 1}
+            />
+            <button type="submit" className="btn" disabled={isGenerating || !trimmedIdea}>
               {submitLabel}
             </button>
-          </div>
+          </form>
 
           {modelOptions.enabled ? (
             <div className="modelRow">
