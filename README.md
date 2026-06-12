@@ -42,6 +42,16 @@ Type an idea (e.g. “make a tetris game”) and `prism0` generates a small brow
 - **Model picker** — With `--enable-model-picker` and `OPENAI_MODELS`, the UI exposes a model dropdown.
 - **Multi-model fallback** — Each request tries the selected model first, then falls back through the remaining configured models on failure.
 
+### Accounts, dashboard, and hosting
+
+- **User accounts** — Register with username, email, and password. Email verification is required before login.
+- **Sessions** — HttpOnly cookie (`prism0_session`); generation and most API routes require an authenticated, verified session.
+- **Dashboard** — `/dashboard` shows hosted projects, generation history, token usage, and profile settings.
+- **Publish to the web** — After a successful run, publish to a stable public URL at `/h/:slug` with a separate manage link at `/manage/:editToken` (page views, versioning, revert, delete).
+- **SQLite persistence** — Users, sessions, projects, and generation history are stored in a local SQLite database (`DATABASE_PATH`). Back up this file in production.
+
+See [docs/auth-and-hosting.md](docs/auth-and-hosting.md) for flows, API detail, and deployment notes.
+
 ### Safety and limits
 
 - **Per-client rate limiting** — `GENERATION_RATE_LIMIT_MAX` requests per `GENERATION_RATE_LIMIT_WINDOW_MS` per client IP (generation, follow-up, and repair endpoints).
@@ -86,6 +96,10 @@ Backend reads configuration from env vars (or CLI flags — see below):
 - `GENERATION_RATE_LIMIT_MAX` (optional, default: `10`; generation/repair requests allowed per client per window)
 - `CORS_ORIGIN` (optional, unset by default; set only when serving the API cross-origin)
 - `TRUST_PROXY` (optional, default: `false`; set to `true` behind a trusted reverse proxy)
+- `DATABASE_PATH` (optional, default: `./data/prism0.db`; SQLite file for users, sessions, and hosted projects)
+- `APP_BASE_URL` (optional, default: `http://localhost:8787`; public origin used in verification email links)
+- `SESSION_TTL_MS` (optional, default: `604800000`; session lifetime in milliseconds, 7 days)
+- `AUTH_EXPOSE_VERIFICATION_TOKEN` (optional, default: `false`; set to `true` in dev/tests to return verification tokens in API responses — **never in production**)
 
 Example (NVIDIA NIM-style, similar to `generate.js`):
 
@@ -117,16 +131,60 @@ CLI flags override environment variables when starting the backend (`npm run dev
 
 ## API
 
+**Auth:** Most routes below require a session cookie from `POST /api/auth/login` (verified email). Exceptions: `/api/health`, `/api/auth/register`, `/api/auth/login`, `/api/auth/verify-email`, `/api/auth/resend-verification`, `/api/auth/me`, public `/h/:slug` hosting, and read-only `/api/projects/manage/:editToken`.
+
+### Health
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/health` | No | Health check (`{ "ok": true }`) |
+
+### Authentication and dashboard
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/auth/me` | Optional | Current session: `{ authenticated, user? }` |
+| `POST` | `/api/auth/register` | No | `{ username, email, password }` → `{ user, verificationToken? }` |
+| `POST` | `/api/auth/login` | No | Sets `prism0_session` cookie; returns `{ user }` |
+| `POST` | `/api/auth/logout` | Yes | Clears session |
+| `GET` | `/api/auth/verify-email` | No | Query `token` — verify email |
+| `POST` | `/api/auth/resend-verification` | No | `{ username, password }` |
+| `PATCH` | `/api/auth/profile` | Yes | `{ displayName }` |
+| `POST` | `/api/auth/change-email` | Yes | `{ email, password }` |
+| `POST` | `/api/auth/change-password` | Yes | `{ currentPassword, newPassword }` |
+| `DELETE` | `/api/auth/account` | Yes | `{ password }` |
+| `GET` | `/api/dashboard` | Yes | Projects, history, token summary |
+
+### Generation (authenticated)
+
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/health` | Health check (`{ "ok": true }`) |
 | `GET` | `/api/models` | Model picker state: `enabled`, `defaultModel`, `models`, `yoloModeEnabled` |
-| `POST` | `/api/generate` | Start a new generation. Body: `{ "idea": string, "model"?: string, "yolo"?: boolean }`. Returns `{ "runId": string }`. |
-| `POST` | `/api/generate/:runId/follow-up` | Update an existing project. Body: `{ "prompt": string, "model"?: string, "yolo"?: boolean }`. |
-| `POST` | `/api/generate/:runId/fix` | Repair a runtime/preview error. Body: `{ "error": string, "model"?: string }`. Always validates. |
-| `POST` | `/api/generate/:runId/validation-fix` | Repair validation failures. Body: `{ "error": string, "model"?: string }`. |
-| `GET` | `/api/generate/:runId/events` | SSE stream of `log`, `stream`, `usage`, `done`, and `error` events |
-| `GET` | `/api/project/:runId/download` | Download the generated project as a ZIP |
+| `POST` | `/api/generate` | Start generation. Body: `{ idea, model?, yolo?, projectId? }` → `{ runId }` |
+| `POST` | `/api/generate/:runId/follow-up` | Update app. Body: `{ prompt, model?, yolo?, projectId? }` |
+| `POST` | `/api/generate/:runId/fix` | Runtime repair. Body: `{ error, model? }` |
+| `POST` | `/api/generate/:runId/validation-fix` | Validation repair. Body: `{ error, model? }` |
+| `POST` | `/api/generate/:runId/stop` | Stop an in-progress run |
+| `POST` | `/api/generate/:runId/pause` | Pause an in-progress run |
+| `POST` | `/api/generate/:runId/resume` | Resume a paused run |
+| `GET` | `/api/generate/:runId/events` | SSE: `log`, `stream`, `usage`, `done`, `error` |
+| `GET` | `/api/project/:runId/download` | Download generated project as ZIP |
+
+### Hosted projects
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/projects` | Yes | List user's hosted projects |
+| `POST` | `/api/projects` | Yes | Publish: `{ runId, name }` |
+| `GET` | `/api/projects/:projectId` | Yes | Owner project detail |
+| `GET` | `/api/projects/manage/:editToken` | Optional | Manage page data; `canEdit` for owner |
+| `POST` | `/api/projects/:projectId/versions` | Yes | Save version from `{ runId, idea? }` |
+| `POST` | `/api/projects/:projectId/revert` | Yes | `{ versionId }` |
+| `DELETE` | `/api/projects/:projectId` | Yes | Delete project |
+| `GET` | `/h/:slug` | No | Public hosted app |
+| `GET` | `/h/:slug/*` | No | Hosted static assets |
+
+Full request/response detail: [docs/auth-and-hosting.md](docs/auth-and-hosting.md).
 
 Generation, follow-up, and repair `POST` routes share the same rate-limit and active-run guards (HTTP 429 / 503 when exceeded).
 
@@ -158,8 +216,9 @@ export OPENAI_API_KEY="your-key"
 npm run dev
 ```
 
-- Frontend: `http://localhost:5173` (proxies `/api` to backend)
+- Frontend: `http://localhost:5173` (proxies `/api` and `/h` to backend)
 - Backend: `http://localhost:8787`
+- Generator (after login): `http://localhost:5173/app`
 
 You can also pass CLI flags to the backend dev process:
 
@@ -198,10 +257,14 @@ Build and run the production image:
 
 ```bash
 docker build -t prism0 .
-docker run --rm -p 8787:8787 -e OPENAI_API_KEY="your-key" prism0
+docker run --rm -p 8787:8787 \
+  -e OPENAI_API_KEY="your-key" \
+  -e APP_BASE_URL="http://localhost:8787" \
+  -v prism0-data:/app/data \
+  prism0
 ```
 
-The image exposes port `8787` by default and includes a healthcheck for `/api/health`. Inject secrets with environment variables; do not bake them into the image.
+The image exposes port `8787` by default and includes a healthcheck for `/api/health`. Inject secrets with environment variables; do not bake them into the image. Mount a volume at `/app/data` (or set `DATABASE_PATH`) so SQLite user and project data survives container restarts. The runtime image includes a compiled `better-sqlite3` native module (built in the Docker build stage).
 
 #### Run with Ollama in Docker
 
@@ -272,6 +335,7 @@ Architecture, scaling, and reliability notes:
 
 ```text
 docs/architecture.md
+docs/auth-and-hosting.md
 ```
 
 ### CI, coverage, and security

@@ -6,16 +6,20 @@ prism0 turns a text idea into a small browser app, validates the generated proje
 
 ### Frontend
 
-- React application built with Vite.
-- `frontend/src/ui/App.tsx` renders the prompt form, progress log, Sandpack preview, download link, and runtime repair UI.
-- `frontend/src/hooks/useGeneration.ts` owns API calls, Server-Sent Events, and client-side generation state.
+- React application built with Vite and **React Router**.
+- `frontend/src/ui/App.tsx` defines public routes (splash, login, register, verify) and protected routes (dashboard, generator).
+- `frontend/src/ui/GeneratorApp.tsx` renders the prompt form, progress log, Sandpack preview, publish flow, download link, and runtime repair UI.
+- `frontend/src/hooks/useAuth.tsx` manages session state and account API calls (`credentials: "include"`).
+- `frontend/src/hooks/useGeneration.ts` owns generation API calls, Server-Sent Events, and client-side generation state.
 - Generated app runtime errors are reported from the preview frame back to the parent UI and can trigger a repair run.
 
 ### Backend
 
 - Express service in `backend/src/server.ts`.
 - Static frontend assets are served from `frontend/dist`.
-- API routes are registered from `backend/src/routes.ts`.
+- Route modules: `routes.ts` (generation), `authRoutes.ts` (accounts), `projectRoutes.ts` (publish/manage), `hosting.ts` (public `/h/:slug`).
+- **SQLite** (`backend/src/db.ts`, `better-sqlite3`) stores users, sessions, hosted projects, and generation history.
+- Auth middleware (`authMiddleware.ts`) loads the session from the `prism0_session` cookie on every request.
 - `/api/health` is used by CI, Docker, Kubernetes, and PaaS health checks.
 - Security and proxy headers are set at the Express layer.
 
@@ -40,14 +44,26 @@ prism0 turns a text idea into a small browser app, validates the generated proje
 
 ## Request flow
 
-1. Browser posts an idea to `POST /api/generate`.
-2. Backend creates a run and starts generation asynchronously.
+### Authentication (first visit)
+
+1. User registers at `POST /api/auth/register`; backend stores credentials and sends a verification email.
+2. User verifies via `GET /api/auth/verify-email?token=…`.
+3. User logs in at `POST /api/auth/login`; backend sets an HttpOnly session cookie.
+4. `GET /api/auth/me` and auth middleware attach `user` to subsequent requests.
+
+### Generation (authenticated)
+
+1. Browser posts an idea to `POST /api/generate` (session required).
+2. Backend creates a run, records generation history for the user, and starts generation asynchronously.
 3. Browser connects to `GET /api/generate/:runId/events`.
 4. Backend streams logs and terminal events over SSE.
-5. Backend validates the generated project.
+5. Backend validates the generated project (unless YOLO mode skips harness on initial generation).
 6. Browser receives generated files and displays them in Sandpack.
 7. Browser can download the project zip from `GET /api/project/:runId/download`.
 8. If the preview reports a runtime error, the browser can post to `POST /api/generate/:runId/fix`.
+9. User may publish via `POST /api/projects`; visitors open the app at `GET /h/:slug`.
+
+See [auth-and-hosting.md](./auth-and-hosting.md) for account, dashboard, and hosting API detail.
 
 ## Production stability choices
 
@@ -85,7 +101,9 @@ The optional Kubernetes HPA is provided for deployments that satisfy one of thos
 
 ## Reliability boundaries
 
-- In-memory run state is lost on process restart. Users can re-run generation after a restart.
-- Generated validation workspaces are not persistent and do not need backups.
-- The app does not store user accounts, long-lived generated artifacts, or API keys outside environment variables.
-- For multi-tenant or high-traffic deployments, add authentication, rate limiting, persistent storage, and shared run state before exposing the service broadly.
+- **In-memory run state** (active generations, SSE subscribers, Sandpack files for unpublished runs) is lost on process restart. Users can re-run generation after a restart.
+- **SQLite** (`DATABASE_PATH`) persists users, sessions, hosted projects, and generation history. Back up this file in production; mount a volume in Docker/Kubernetes.
+- Generated validation workspaces under `backend/validation-harness/runs` are ephemeral and do not need backups.
+- API keys remain in environment variables only.
+- Generation endpoints are rate-limited per client IP; login/register endpoints are not yet rate-limited — plan accordingly for public deployments.
+- Horizontal scaling still requires sticky sessions or external run state for **in-flight generations**; the database can be shared only when all replicas use the same `DATABASE_PATH` on shared storage (single-writer SQLite) or when the storage layer is redesigned.
