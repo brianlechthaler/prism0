@@ -52,9 +52,30 @@ export type SseMessage =
       runId: string;
       files?: Record<string, string>;
       repairable?: boolean;
-    };
+    }
+  | { type: "stopped"; runId: string }
+  | { type: "paused"; runId: string };
 
-export type RunStatus = "pending" | "running" | "done" | "error";
+export type RunStatus = "pending" | "running" | "paused" | "done" | "error" | "cancelled";
+
+export type RunPipelineKind = "generate" | "follow_up" | "runtime_repair" | "validation_repair";
+
+export type RunPipelineStage = "llm" | "parse" | "validate";
+
+export type RunCheckpoint = {
+  kind: RunPipelineKind;
+  stage: RunPipelineStage;
+  idea: string;
+  selectedModel?: string;
+  skipValidation?: boolean;
+  contextState: RunContextState;
+  raw?: string;
+  project?: GeneratedProject;
+  sourceProject?: GeneratedProject;
+  followUpPrompt?: string;
+  runtimeError?: string;
+  validationError?: string;
+};
 
 export type GenerationRun = {
   id: string;
@@ -66,6 +87,7 @@ export type GenerationRun = {
   summary?: string;
   usage?: RunUsageMetrics;
   error?: string;
+  checkpoint?: RunCheckpoint;
 };
 
 export type GeneratedProject = {

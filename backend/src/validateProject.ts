@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeProjectFiles, resolveProjectFilePath } from "./fileSafety.js";
+import { RunPausedError, RunStoppedError, throwIfAborted } from "./runControl.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,7 +26,8 @@ export type ValidationDeps = {
     args: string[],
     cwd: string,
     onLog: (line: string) => void,
-    spawnImpl?: ValidationDeps["spawn"]
+    spawnImpl?: ValidationDeps["spawn"],
+    signal?: AbortSignal
   ) => Promise<string>;
 };
 
@@ -50,7 +52,8 @@ export async function validateGeneratedProject(
   runId: string,
   files: Record<string, string>,
   onLog: (line: string) => void,
-  deps: ValidationDeps = defaultDeps
+  deps: ValidationDeps = defaultDeps,
+  signal?: AbortSignal
 ): Promise<ValidationResult> {
   const { copyConfigs, execute } = resolveValidationOrchestration(deps);
   const runDir = path.join(deps.harnessRoot, "runs", runId);
@@ -58,6 +61,7 @@ export async function validateGeneratedProject(
   await deps.fs.mkdir(runDir, { recursive: true });
 
   onLog(`Preparing validation workspace at ${runDir}`);
+  throwIfAborted(signal);
   for (const [filename, content] of Object.entries(normalizeProjectFiles(files))) {
     const target = resolveProjectFilePath(runDir, filename);
     await deps.fs.mkdir(path.dirname(target), { recursive: true });
@@ -78,7 +82,8 @@ export async function validateGeneratedProject(
       [path.join(runDir, "node_modules/eslint/bin/eslint.js"), "."],
       runDir,
       (line) => onLog(`[eslint] ${line}`),
-      deps.spawn
+      deps.spawn,
+      signal
     );
   } catch (error) {
     failures.push(formatCommandFailure("ESLint", error));
@@ -91,7 +96,8 @@ export async function validateGeneratedProject(
       [path.join(runDir, "node_modules/vitest/vitest.mjs"), "run"],
       runDir,
       (line) => onLog(`[vitest] ${line}`),
-      deps.spawn
+      deps.spawn,
+      signal
     );
   } catch (error) {
     failures.push(formatCommandFailure("Vitest", error));
@@ -157,14 +163,29 @@ export function runCommand(
   args: string[],
   cwd: string,
   onLog: (line: string) => void,
-  spawnImpl: ValidationDeps["spawn"] = nodeSpawn
+  spawnImpl: ValidationDeps["spawn"] = nodeSpawn,
+  signal?: AbortSignal
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    throwIfAborted(signal);
     const child = spawnImpl(command, args, {
       cwd,
       env: createValidationEnv(process.env),
       shell: process.platform === "win32"
     }) as ChildProcess;
+
+    const onAbort = () => {
+      child.kill("SIGTERM");
+      reject(signal?.reason === "pause" ? new RunPausedError() : new RunStoppedError());
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
 
     let stdout = "";
     let stderr = "";
@@ -185,8 +206,12 @@ export function runCommand(
       }
     });
 
-    child.on("error", (error) => reject(error));
+    child.on("error", (error) => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      reject(error);
+    });
     child.on("close", (code) => {
+      if (signal) signal.removeEventListener("abort", onAbort);
       const combined = `${stdout}\n${stderr}`.trim();
       if (code === 0) {
         resolve(combined);

@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { GenerationRun, RunStatus, RunUsageMetrics, SseMessage, StreamChannel } from "./types.js";
+import type {
+  GenerationRun,
+  RunCheckpoint,
+  RunStatus,
+  RunUsageMetrics,
+  SseMessage,
+  StreamChannel
+} from "./types.js";
 
 type Subscriber = (message: SseMessage) => void;
 
@@ -11,6 +18,7 @@ type InternalRun = GenerationRun & {
   subscribers: Set<Subscriber>;
   createdAt: number;
   updatedAt: number;
+  abortController?: AbortController;
 };
 
 export type RunStoreOptions = {
@@ -53,8 +61,96 @@ export class RunStore {
   }
 
   activeCount(): number {
-    return [...this.runs.values()].filter((run) => run.status === "pending" || run.status === "running")
-      .length;
+    return [...this.runs.values()].filter(
+      (run) => run.status === "pending" || run.status === "running"
+    ).length;
+  }
+
+  isControllable(id: string): boolean {
+    const run = this.runs.get(id);
+    return run?.status === "pending" || run?.status === "running";
+  }
+
+  isResumable(id: string): boolean {
+    return this.runs.get(id)?.status === "paused";
+  }
+
+  attachAbortController(id: string): AbortController {
+    const run = this.require(id);
+    if (run.abortController && !run.abortController.signal.aborted) {
+      return run.abortController;
+    }
+    const controller = new AbortController();
+    run.abortController = controller;
+    return controller;
+  }
+
+  getAbortSignal(id: string): AbortSignal | undefined {
+    return this.runs.get(id)?.abortController?.signal;
+  }
+
+  clearAbortController(id: string): void {
+    const run = this.runs.get(id);
+    if (!run) return;
+    run.abortController = undefined;
+  }
+
+  stop(id: string): boolean {
+    const run = this.runs.get(id);
+    if (!run || !this.isControllable(id)) return false;
+    if (run.abortController) {
+      run.abortController.abort("stop");
+    } else {
+      this.markStopped(id);
+    }
+    return true;
+  }
+
+  pause(id: string): boolean {
+    const run = this.runs.get(id);
+    if (!run || !this.isControllable(id)) return false;
+    if (run.abortController) {
+      run.abortController.abort("pause");
+    } else {
+      this.markPaused(id, {
+        kind: "generate",
+        stage: "llm",
+        idea: run.idea,
+        contextState: {}
+      });
+    }
+    return true;
+  }
+
+  markStopped(id: string): void {
+    const run = this.require(id);
+    run.status = "cancelled";
+    run.updatedAt = this.now();
+    run.abortController = undefined;
+    this.broadcast(run, { type: "stopped", runId: run.id });
+    run.subscribers.clear();
+    this.pruneTerminalRuns();
+  }
+
+  markPaused(id: string, checkpoint: RunCheckpoint): void {
+    const run = this.require(id);
+    run.status = "paused";
+    run.checkpoint = checkpoint;
+    run.updatedAt = this.now();
+    run.abortController = undefined;
+    this.broadcast(run, { type: "paused", runId: run.id });
+  }
+
+  getCheckpoint(id: string): RunCheckpoint | undefined {
+    return this.runs.get(id)?.checkpoint;
+  }
+
+  resume(id: string): RunCheckpoint | undefined {
+    const run = this.runs.get(id);
+    if (!run || run.status !== "paused" || !run.checkpoint) return undefined;
+    run.status = "running";
+    run.updatedAt = this.now();
+    return run.checkpoint;
   }
 
   subscribe(id: string, subscriber: Subscriber): () => void {
@@ -80,6 +176,11 @@ export class RunStore {
       subscriber({ type: "done", files: run.files });
     } else if (run.status === "error") {
       subscriber(this.errorMessage(run));
+    } else if (run.status === "cancelled") {
+      subscriber({ type: "stopped", runId: run.id });
+    } else if (run.status === "paused") {
+      subscriber({ type: "paused", runId: run.id });
+      run.subscribers.add(subscriber);
     } else {
       run.subscribers.add(subscriber);
     }
@@ -170,7 +271,10 @@ export class RunStore {
     if (this.runs.size <= this.maxRuns) return;
 
     const terminalRuns = [...this.runs.values()]
-      .filter((run) => run.status === "done" || run.status === "error")
+      .filter(
+        (run) =>
+          run.status === "done" || run.status === "error" || run.status === "cancelled"
+      )
       .sort((a, b) => a.updatedAt - b.updatedAt);
 
     for (const run of terminalRuns) {
@@ -189,7 +293,8 @@ export class RunStore {
       files: { ...run.files },
       summary: run.summary,
       usage: run.usage ? this.cloneUsage(run.usage) : undefined,
-      error: run.error
+      error: run.error,
+      checkpoint: run.checkpoint ? { ...run.checkpoint, contextState: { ...run.checkpoint.contextState } } : undefined
     };
   }
 

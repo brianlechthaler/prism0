@@ -76,14 +76,16 @@ describe("validateGeneratedProject", () => {
       ["/harness/runs/run-1/node_modules/eslint/bin/eslint.js", "."],
       "/harness/runs/run-1",
       expect.any(Function),
-      deps.spawn
+      deps.spawn,
+      undefined
     );
     expect(deps.execute).toHaveBeenCalledWith(
       process.execPath,
       ["/harness/runs/run-1/node_modules/vitest/vitest.mjs", "run"],
       "/harness/runs/run-1",
       expect.any(Function),
-      deps.spawn
+      deps.spawn,
+      undefined
     );
     expect(result).toEqual({ lintOutput: "lint ok", testOutput: "tests ok" });
     expect(logs.some((l) => l.includes("Validation finished successfully"))).toBe(true);
@@ -242,6 +244,75 @@ describe("runCommand", () => {
     vi.restoreAllMocks();
   });
 
+  it("rejects immediately when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort("stop");
+    const spawn = vi.fn();
+
+    await expect(
+      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
+    ).rejects.toThrow(/stopped by user/);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the signal aborts during spawn", async () => {
+    const controller = new AbortController();
+    const spawn = vi.fn().mockImplementation(() => {
+      const child = mockChild(0, "ok") as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.kill = vi.fn();
+      controller.abort("stop");
+      return child;
+    });
+
+    await expect(
+      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
+    ).rejects.toThrow(/stopped by user/);
+  });
+
+  it("aborts running validation commands when the signal is triggered", async () => {
+    const controller = new AbortController();
+    const spawn = vi.fn().mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      queueMicrotask(() => controller.abort("stop"));
+      return child;
+    });
+
+    await expect(
+      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
+    ).rejects.toThrow(/stopped by user/);
+  });
+
+  it("aborts validation with a pause error", async () => {
+    const controller = new AbortController();
+    const spawn = vi.fn().mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      queueMicrotask(() => controller.abort("pause"));
+      return child;
+    });
+
+    await expect(
+      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
+    ).rejects.toThrow(/paused by user/);
+  });
+
   it("handles processes without stdout/stderr streams", async () => {
     const spawn = vi.fn().mockImplementation(() => {
       const child = new EventEmitter();
@@ -278,6 +349,22 @@ describe("runCommand", () => {
     platform.mockRestore();
   });
 
+  it("cleans up abort listeners after successful and failing commands", async () => {
+    const controller = new AbortController();
+    const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+    const spawn = vi.fn().mockReturnValue(mockChild(0, "ok"));
+
+    await runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal);
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+
+    removeSpy.mockClear();
+    const failingSpawn = vi.fn().mockReturnValue(mockChild(1, "", "lint failed"));
+    await expect(
+      runCommand("npm", ["run", "lint"], "/tmp", () => {}, failingSpawn, controller.signal)
+    ).rejects.toThrow(/lint failed/);
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
   it("rejects when spawn fails to start", async () => {
     const spawn = vi.fn().mockImplementation(() => {
       const child = new EventEmitter() as EventEmitter & {
@@ -293,6 +380,26 @@ describe("runCommand", () => {
     await expect(runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn)).rejects.toThrow(
       /spawn failed/
     );
+  });
+
+  it("removes abort listeners when spawn fails after attaching a signal", async () => {
+    const controller = new AbortController();
+    const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+    const spawn = vi.fn().mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      queueMicrotask(() => child.emit("error", new Error("spawn failed")));
+      return child;
+    });
+
+    await expect(
+      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
+    ).rejects.toThrow(/spawn failed/);
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
   });
 });
 

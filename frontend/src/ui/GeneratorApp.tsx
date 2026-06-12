@@ -127,7 +127,8 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
   const [publishName, setPublishName] = useState("");
   const [publishMessage, setPublishMessage] = useState<string | undefined>();
   const [isPublishing, setIsPublishing] = useState(false);
-  const { state, start, repair, repairValidation, followUp } = useGeneration();
+  const { state, start, stop, pause, resume, restart, repair, repairValidation, followUp } =
+    useGeneration();
   const modelOptions = useModelOptions();
   const [selectedModel, setSelectedModel] = React.useState("");
   const ideaTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -135,6 +136,8 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
   const usage = "usage" in state ? state.usage : undefined;
   const canFollowUp = state.kind === "ready";
   const isGenerating = state.kind === "generating";
+  const isPaused = state.kind === "paused";
+  const isActiveRun = isGenerating || isPaused;
   const trimmedIdea = idea.trim();
   const activeModel = modelOptions.enabled
     ? selectedModel || modelOptions.defaultModel || modelOptions.models[0] || ""
@@ -177,7 +180,11 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
     state.kind === "ready" ? `/api/project/${encodeURIComponent(state.runId)}/download` : undefined;
 
   const editorFiles = useMemo(() => {
-    if (state.kind !== "ready" && !(state.kind === "error" && state.files)) {
+    if (
+      state.kind !== "ready" &&
+      !(state.kind === "error" && state.files) &&
+      !(state.kind === "paused" && state.files)
+    ) {
       return undefined;
     }
 
@@ -209,12 +216,14 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
       : "What should we build?";
   const submitLabel = isGenerating
     ? "Generating…"
-    : canFollowUp && readySubmissionMode === "follow-up"
-      ? "Update app"
-      : "Submit";
+    : isPaused
+      ? "Paused"
+      : canFollowUp && readySubmissionMode === "follow-up"
+        ? "Update app"
+        : "Submit";
 
   const submitPrompt = () => {
-    if (isGenerating || !trimmedIdea) return;
+    if (isActiveRun || !trimmedIdea) return;
 
     if (state.kind === "ready" && readySubmissionMode === "follow-up") {
       void followUp(
@@ -278,6 +287,14 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
     }
   };
 
+  const handleRestart = () => {
+    void restart(
+      trimmedIdea,
+      activeModel,
+      projectId ? { ...generationOptions, projectId } : generationOptions
+    );
+  };
+
   const expandIdeaField = () => {
     setIsIdeaMultiline(true);
   };
@@ -338,10 +355,48 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
               }
               rows={isIdeaMultiline ? 4 : 1}
             />
-            <button type="submit" className="btn" disabled={isGenerating || !trimmedIdea}>
+            <button type="submit" className="btn" disabled={isActiveRun || !trimmedIdea}>
               {submitLabel}
             </button>
           </form>
+
+          {isActiveRun ? (
+            <div className="controlRow">
+              <button
+                type="button"
+                className="btn btnSecondary"
+                onClick={() => void stop(state.runId)}
+                disabled={!isGenerating}
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                className="btn btnSecondary"
+                onClick={() => void pause(state.runId)}
+                disabled={!isGenerating}
+              >
+                Pause
+              </button>
+              {isPaused ? (
+                <button
+                  type="button"
+                  className="btn btnSecondary"
+                  onClick={() => void resume(state.runId)}
+                >
+                  Resume
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btnSecondary"
+                onClick={handleRestart}
+                disabled={!trimmedIdea}
+              >
+                Restart
+              </button>
+            </div>
+          ) : null}
 
           {modelOptions.enabled ? (
             <div className="modelRow">
@@ -351,7 +406,7 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
                   id="model"
                   value={activeModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  disabled={isGenerating || modelOptions.models.length === 0}
+                  disabled={isActiveRun || modelOptions.models.length === 0}
                 >
                   {modelOptions.models.map((model) => (
                     <option key={model} value={model}>
@@ -379,7 +434,7 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
                   type="checkbox"
                   checked={yoloMode}
                   onChange={(e) => setYoloMode(e.target.checked)}
-                  disabled={isGenerating}
+                  disabled={isActiveRun}
                 />
                 <span>YOLO mode — skip lint/tests</span>
               </label>

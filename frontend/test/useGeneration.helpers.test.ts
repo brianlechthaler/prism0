@@ -9,6 +9,7 @@ import {
   extractValidationErrorFromLogs,
   failGeneration,
   isYoloRun,
+  pauseGenerationState,
   type RunUsageMetrics
 } from "../src/hooks/useGeneration";
 
@@ -201,6 +202,57 @@ describe("beginGeneratingState", () => {
       kind: "generating",
       runId: "",
       logs: ["done", "Requesting follow-up changes…"],
+      streams: { thinking: "plan", content: "{" },
+      usage
+    });
+  });
+});
+
+describe("pauseGenerationState", () => {
+  it("pauses from idle or error states", () => {
+    expect(pauseGenerationState({ kind: "idle" }, "r1")).toEqual({
+      kind: "paused",
+      runId: "r1",
+      logs: ["Paused."],
+      streams: emptyRunStreams()
+    });
+
+    expect(
+      pauseGenerationState(
+        {
+          kind: "error",
+          message: "boom",
+          logs: ["x"],
+          streams: emptyRunStreams(),
+          files: { "index.html": "<html/>" }
+        },
+        "r1"
+      )
+    ).toEqual({
+      kind: "paused",
+      runId: "r1",
+      logs: ["x", "Paused."],
+      streams: emptyRunStreams(),
+      files: { "index.html": "<html/>" }
+    });
+  });
+
+  it("preserves progress and marks the run as paused", () => {
+    expect(
+      pauseGenerationState(
+        {
+          kind: "generating",
+          runId: "r1",
+          logs: ["working"],
+          streams: { thinking: "plan", content: "{" },
+          usage
+        },
+        "r1"
+      )
+    ).toEqual({
+      kind: "paused",
+      runId: "r1",
+      logs: ["working", "Paused."],
       streams: { thinking: "plan", content: "{" },
       usage
     });

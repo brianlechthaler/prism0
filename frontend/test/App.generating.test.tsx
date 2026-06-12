@@ -5,7 +5,11 @@ import { GeneratorApp } from "../src/ui/GeneratorApp";
 import { renderWithRouter } from "./helpers";
 
 const mocks = vi.hoisted(() => ({
-  start: vi.fn()
+  start: vi.fn(),
+  stop: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  restart: vi.fn()
 }));
 
 vi.mock("../src/hooks/useGeneration", () => ({
@@ -45,13 +49,23 @@ vi.mock("../src/hooks/useGeneration", () => ({
       }
     },
     start: mocks.start,
-    repair: vi.fn()
+    stop: mocks.stop,
+    pause: mocks.pause,
+    resume: mocks.resume,
+    restart: mocks.restart,
+    repair: vi.fn(),
+    repairValidation: vi.fn(),
+    followUp: vi.fn()
   })
 }));
 
 describe("GeneratorApp generating state", () => {
   beforeEach(() => {
     mocks.start.mockClear();
+    mocks.stop.mockClear();
+    mocks.pause.mockClear();
+    mocks.resume.mockClear();
+    mocks.restart.mockClear();
   });
 
   it("disables submit and shows progress label", () => {
@@ -67,5 +81,16 @@ describe("GeneratorApp generating state", () => {
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
     expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("shows generation control buttons", () => {
+    renderWithRouter(<GeneratorApp />);
+    expect(screen.getByRole("button", { name: /stop/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^pause$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /restart/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /stop/i }));
+    expect(mocks.stop).toHaveBeenCalledWith("abc");
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    expect(mocks.pause).toHaveBeenCalledWith("abc");
   });
 });

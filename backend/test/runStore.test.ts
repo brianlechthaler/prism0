@@ -251,4 +251,113 @@ describe("RunStore", () => {
     expect(() => store.appendLog("missing", "x")).toThrow(/not found/i);
     expect(() => store.appendStream("missing", "thinking", "x")).toThrow(/not found/i);
   });
+
+  it("manages abort controllers and run control actions", () => {
+    const store = new RunStore();
+    const run = store.create("make app");
+    store.setStatus(run.id, "running");
+
+    const first = store.attachAbortController(run.id);
+    const second = store.attachAbortController(run.id);
+    expect(second).toBe(first);
+
+    expect(store.isControllable(run.id)).toBe(true);
+    expect(store.stop(run.id)).toBe(true);
+    expect(first.signal.aborted).toBe(true);
+    store.markStopped(run.id);
+    expect(store.get(run.id)?.status).toBe("cancelled");
+
+    const pausedRun = store.create("pause me");
+    store.setStatus(pausedRun.id, "running");
+    const pauseController = store.attachAbortController(pausedRun.id);
+    expect(store.pause(pausedRun.id)).toBe(true);
+    expect(pauseController.signal.aborted).toBe(true);
+    store.markPaused(pausedRun.id, {
+      kind: "generate",
+      stage: "llm",
+      idea: "pause me",
+      contextState: {}
+    });
+    expect(store.get(pausedRun.id)?.status).toBe("paused");
+    expect(store.getCheckpoint(pausedRun.id)?.idea).toBe("pause me");
+    expect(store.isResumable(pausedRun.id)).toBe(true);
+
+    const resumed = store.resume(pausedRun.id);
+    expect(resumed?.idea).toBe("pause me");
+    expect(store.get(pausedRun.id)?.status).toBe("running");
+    expect(store.resume("missing")).toBeUndefined();
+  });
+
+  it("stops and pauses pending runs without abort controllers", () => {
+    const store = new RunStore();
+    const run = store.create("pending");
+
+    expect(store.stop(run.id)).toBe(true);
+    expect(store.get(run.id)?.status).toBe("cancelled");
+
+    const pauseRun = store.create("pending pause");
+    expect(store.pause(pauseRun.id)).toBe(true);
+    expect(store.get(pauseRun.id)?.status).toBe("paused");
+  });
+
+  it("replays stopped and paused events for late subscribers", () => {
+    const store = new RunStore();
+    const stoppedRun = store.create("stopped");
+    store.markStopped(stoppedRun.id);
+
+    const stoppedEvents: string[] = [];
+    store.subscribe(stoppedRun.id, (msg) => stoppedEvents.push(msg.type));
+    expect(stoppedEvents).toEqual(["stopped"]);
+
+    const pausedRun = store.create("paused");
+    store.markPaused(pausedRun.id, {
+      kind: "generate",
+      stage: "llm",
+      idea: "paused",
+      contextState: {}
+    });
+
+    const pausedEvents: string[] = [];
+    store.subscribe(pausedRun.id, (msg) => pausedEvents.push(msg.type));
+    expect(pausedEvents).toEqual(["paused"]);
+  });
+
+  it("rejects control actions for inactive runs", () => {
+    const store = new RunStore();
+    const run = store.create("done");
+    store.complete(run.id, { "index.html": "<html/>" });
+
+    expect(store.stop(run.id)).toBe(false);
+    expect(store.pause(run.id)).toBe(false);
+    expect(store.isResumable(run.id)).toBe(false);
+  });
+
+  it("clears missing abort controllers safely", () => {
+    const store = new RunStore();
+    expect(() => store.clearAbortController("missing")).not.toThrow();
+
+    const run = store.create("clear me");
+    store.attachAbortController(run.id);
+    store.clearAbortController(run.id);
+    expect(store.getAbortSignal(run.id)).toBeUndefined();
+  });
+
+  it("reuses a fresh abort controller after the previous one was aborted", () => {
+    const store = new RunStore();
+    const run = store.create("retry");
+    const first = store.attachAbortController(run.id);
+    first.abort("stop");
+    const next = store.attachAbortController(run.id);
+    expect(next).not.toBe(first);
+    expect(next.signal.aborted).toBe(false);
+  });
+
+  it("prunes cancelled runs when retention is exceeded", () => {
+    const store = new RunStore({ maxRuns: 1 });
+    const cancelledRun = store.create("cancelled");
+    store.markStopped(cancelledRun.id);
+    const nextRun = store.create("next");
+    expect(store.get(cancelledRun.id)).toBeUndefined();
+    expect(store.get(nextRun.id)?.idea).toBe("next");
+  });
 });
