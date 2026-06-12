@@ -23,6 +23,21 @@ class MockEventSource {
   }
 }
 
+function expectApiPost(
+  fetchMock: ReturnType<typeof vi.fn>,
+  url: string,
+  body: unknown
+) {
+  expect(fetchMock).toHaveBeenCalledWith(
+    url,
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify(body),
+      credentials: "include"
+    })
+  );
+}
+
 describe("useGeneration", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -47,6 +62,28 @@ describe("useGeneration", () => {
     }
   });
 
+  it("starts generation with a project id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runId: "r1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app", "model-b", { projectId: "proj-1" });
+    });
+
+    expectApiPost(fetchMock, "/api/generate", {
+      idea: "make app",
+      model: "model-b",
+      projectId: "proj-1"
+    });
+  });
+
   it("starts generation with a selected model", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ runId: "r1" }), {
@@ -62,11 +99,7 @@ describe("useGeneration", () => {
       await result.current.start("make app", "model-b");
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/generate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idea: "make app", model: "model-b" })
-    });
+    expectApiPost(fetchMock, "/api/generate", { idea: "make app", model: "model-b" });
   });
 
   it("starts generation with YOLO mode enabled", async () => {
@@ -84,11 +117,7 @@ describe("useGeneration", () => {
       await result.current.start("make app", undefined, { yolo: true });
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/generate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idea: "make app", yolo: true })
-    });
+    expectApiPost(fetchMock, "/api/generate", { idea: "make app", yolo: true });
   });
 
   it("starts repair runs for generated app runtime errors", async () => {
@@ -106,10 +135,9 @@ describe("useGeneration", () => {
       await result.current.repair("source-1", "ReferenceError: count is not defined", "model-b");
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/fix", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ error: "ReferenceError: count is not defined", model: "model-b" })
+    expectApiPost(fetchMock, "/api/generate/source-1/fix", {
+      error: "ReferenceError: count is not defined",
+      model: "model-b"
     });
     expect(eventSources.at(-1)?.url).toContain("/api/generate/repair-1/events");
     expect(result.current.state.kind).toBe("generating");
@@ -220,10 +248,9 @@ describe("useGeneration", () => {
       await result.current.followUp("source-1", "add a settings panel", "model-b");
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/follow-up", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "add a settings panel", model: "model-b" })
+    expectApiPost(fetchMock, "/api/generate/source-1/follow-up", {
+      prompt: "add a settings panel",
+      model: "model-b"
     });
     expect(eventSources.at(-1)?.url).toContain("/api/generate/follow-up-1/events");
     expect(result.current.state.kind).toBe("generating");
@@ -531,10 +558,9 @@ describe("useGeneration", () => {
       await result.current.repairValidation("source-1", "lint still failing", "model-b");
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/generate/source-1/validation-fix", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ error: "lint still failing", model: "model-b" })
+    expectApiPost(fetchMock, "/api/generate/source-1/validation-fix", {
+      error: "lint still failing",
+      model: "model-b"
     });
     expect(eventSources.at(-1)?.url).toContain("/api/generate/validation-repair-1/events");
     expect(result.current.state.kind).toBe("generating");

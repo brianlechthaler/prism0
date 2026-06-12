@@ -1,7 +1,8 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { App } from "../src/ui/App";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { GeneratorApp } from "../src/ui/GeneratorApp";
+import { renderWithRouter } from "./helpers";
 
 const mocks = vi.hoisted(() => ({
   repair: vi.fn(),
@@ -48,14 +49,14 @@ vi.mock("../src/hooks/useGeneration", () => ({
   })
 }));
 
-describe("App ready-state preview errors", () => {
+describe("GeneratorApp ready-state preview errors", () => {
   beforeEach(() => {
     mocks.repair.mockReset();
     mocks.onBundlerError = null;
   });
 
   it("shows a repair button when Sandpack reports a bundler error", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(await screen.findByTestId("editor-preview")).toBeInTheDocument();
 
     act(() => {

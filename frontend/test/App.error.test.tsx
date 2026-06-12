@@ -1,13 +1,14 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import {
-  App,
   formatPreviewRuntimeError,
+  GeneratorApp,
   PREVIEW_ERROR_MESSAGE_TYPE,
   withPreviewErrorReporter
-} from "../src/ui/App";
+} from "../src/ui/GeneratorApp";
 import type { GenerationState } from "../src/hooks/useGeneration";
+import { renderWithRouter } from "./helpers";
 
 const mocks = vi.hoisted(() => ({
   repair: vi.fn(),
@@ -46,7 +47,7 @@ vi.mock("../src/hooks/useGeneration", async (importOriginal) => {
   };
 });
 
-describe("App error state", () => {
+describe("GeneratorApp error state", () => {
   beforeEach(() => {
     mocks.repair.mockReset();
     mocks.repairValidation.mockReset();
@@ -60,7 +61,7 @@ describe("App error state", () => {
   });
 
   it("renders the error message", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByText(/something broke/i)).toBeInTheDocument();
   });
 
@@ -88,10 +89,21 @@ describe("App error state", () => {
         type: PREVIEW_ERROR_MESSAGE_TYPE,
         runId: "r1",
         message: "boom",
+        stack: "Error: boom\n    at test.js:1:1",
         filename: "index.js",
         lineno: 2
       })
-    ).toContain("Location: index.js:2");
+    ).toContain("Error: boom\n    at test.js:1:1");
+    expect(
+      formatPreviewRuntimeError({
+        type: PREVIEW_ERROR_MESSAGE_TYPE,
+        runId: "r1",
+        message: "boom",
+        filename: "index.js",
+        lineno: 2,
+        colno: 5
+      })
+    ).toContain("Location: index.js:2:5");
 
     const bodyOnly = withPreviewErrorReporter({ "index.html": "<body></body>" }, "r1");
     expect(bodyOnly["index.html"]).toContain(PREVIEW_ERROR_MESSAGE_TYPE);
@@ -117,7 +129,7 @@ describe("App error state", () => {
       }
     };
 
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     await act(async () => {});
 
     act(() => {
@@ -147,7 +159,7 @@ describe("App error state", () => {
       }
     };
 
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -190,7 +202,7 @@ describe("App error state", () => {
       }
     };
 
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(await screen.findByText(/generated code failed validation/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /fix with llm/i }));
 
@@ -213,7 +225,7 @@ describe("App error state", () => {
       files: { "index.js": "broken();" }
     };
 
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByText(/when generation finishes/i)).toBeInTheDocument();
   });
 });
