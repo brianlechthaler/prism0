@@ -26,7 +26,8 @@ COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
 RUN npm ci --omit=dev --ignore-scripts \
-  && npm ci --prefix backend/validation-harness
+  && npm ci --prefix backend/validation-harness \
+  && npm rebuild better-sqlite3 -w backend
 
 COPY --from=build /app/backend/dist backend/dist
 COPY --from=build /app/frontend/dist frontend/dist
