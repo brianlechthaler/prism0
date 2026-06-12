@@ -20,7 +20,11 @@ const EnvSchema = z.object({
   GENERATION_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().optional(),
   GENERATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
   CORS_ORIGIN: z.string().min(1).optional(),
-  TRUST_PROXY: BooleanEnvSchema.optional()
+  TRUST_PROXY: BooleanEnvSchema.optional(),
+  DATABASE_PATH: z.string().min(1).optional(),
+  APP_BASE_URL: z.string().url().optional(),
+  SESSION_TTL_MS: z.coerce.number().int().positive().optional(),
+  AUTH_EXPOSE_VERIFICATION_TOKEN: BooleanEnvSchema.optional()
 });
 
 export function formatConfigIssues(
@@ -49,6 +53,10 @@ export type AppConfig = {
   generationRateLimitMax: number;
   corsOrigin?: string;
   trustProxy: boolean;
+  databasePath: string;
+  appBaseUrl: string;
+  sessionTtlMs: number;
+  authExposeVerificationToken: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig {
@@ -67,7 +75,11 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     GENERATION_RATE_LIMIT_WINDOW_MS: env.GENERATION_RATE_LIMIT_WINDOW_MS,
     GENERATION_RATE_LIMIT_MAX: env.GENERATION_RATE_LIMIT_MAX,
     CORS_ORIGIN: env.CORS_ORIGIN,
-    TRUST_PROXY: env.TRUST_PROXY
+    TRUST_PROXY: env.TRUST_PROXY,
+    DATABASE_PATH: env.DATABASE_PATH,
+    APP_BASE_URL: env.APP_BASE_URL,
+    SESSION_TTL_MS: env.SESSION_TTL_MS,
+    AUTH_EXPOSE_VERIFICATION_TOKEN: env.AUTH_EXPOSE_VERIFICATION_TOKEN
   };
 
   const parsed = EnvSchema.safeParse(merged);
@@ -103,7 +115,11 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     generationRateLimitWindowMs: parsed.data.GENERATION_RATE_LIMIT_WINDOW_MS ?? 60_000,
     generationRateLimitMax: parsed.data.GENERATION_RATE_LIMIT_MAX ?? 10,
     corsOrigin: parsed.data.CORS_ORIGIN,
-    trustProxy: parsed.data.TRUST_PROXY ?? false
+    trustProxy: parsed.data.TRUST_PROXY ?? false,
+    databasePath: parsed.data.DATABASE_PATH ?? "./data/prism0.db",
+    appBaseUrl: parsed.data.APP_BASE_URL ?? `http://localhost:${parsed.data.PORT ?? 8787}`,
+    sessionTtlMs: parsed.data.SESSION_TTL_MS ?? 7 * 24 * 60 * 60 * 1000,
+    authExposeVerificationToken: parsed.data.AUTH_EXPOSE_VERIFICATION_TOKEN ?? false
   };
 }
 

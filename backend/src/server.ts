@@ -3,27 +3,67 @@ import express from "express";
 import type { Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { AuthService } from "./auth.js";
+import { registerAuthRoutes } from "./authRoutes.js";
+import { createAuthMiddleware } from "./authMiddleware.js";
 import { loadConfig, type AppConfig } from "./config.js";
+import { openDatabase } from "./db.js";
+import { createEmailSender } from "./email.js";
+import { GenerationHistoryService } from "./generationHistory.js";
+import { registerHostingRoutes } from "./hosting.js";
 import { parseCliArgs } from "./parseArgs.js";
+import { ProjectStore } from "./projectStore.js";
+import { registerProjectRoutes } from "./projectRoutes.js";
 import { registerRoutes } from "./routes.js";
 import { RunStore } from "./runStore.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export function createApp(config = loadConfig(process.env, parseCliArgs(process.argv.slice(2)))) {
+export type AppServices = {
+  auth: AuthService;
+  projects: ProjectStore;
+  history: GenerationHistoryService;
+};
+
+export function createServices(config: AppConfig): AppServices {
+  const db = openDatabase(config.databasePath);
+  const sendEmail = createEmailSender({ mode: "console" });
+  const auth = new AuthService({
+    db,
+    sendEmail,
+    appBaseUrl: config.appBaseUrl,
+    sessionTtlMs: config.sessionTtlMs,
+    exposeVerificationToken: config.authExposeVerificationToken
+  });
+  const projects = new ProjectStore({ db, appBaseUrl: config.appBaseUrl });
+  const history = new GenerationHistoryService(db);
+  return { auth, projects, history };
+}
+
+export function createApp(
+  config = loadConfig(process.env, parseCliArgs(process.argv.slice(2))),
+  services = createServices(config)
+) {
   const app = express();
   const store = new RunStore({ maxRuns: config.maxRuns });
 
   app.set("trust proxy", config.trustProxy);
   app.use(securityHeaders);
   if (config.corsOrigin) {
-    app.use(cors({ origin: resolveCorsOrigins(config.corsOrigin) }));
+    app.use(cors({ origin: resolveCorsOrigins(config.corsOrigin), credentials: true }));
   }
   app.use(express.json({ limit: "2mb" }));
+  app.use(createAuthMiddleware(services.auth));
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
-  registerRoutes(app, config, store);
+  registerAuthRoutes(app, services.auth, services.projects, services.history, {
+    sessionTtlMs: config.sessionTtlMs,
+    exposeVerificationToken: config.authExposeVerificationToken
+  });
+  registerProjectRoutes(app, services.projects, store);
+  registerHostingRoutes(app, services.projects);
+  registerRoutes(app, config, store, { history: services.history });
 
   const staticDir = path.resolve(__dirname, "../../frontend/dist");
   app.use(express.static(staticDir));
@@ -38,7 +78,7 @@ export function sendIndexFallback(
   res: express.Response,
   next: express.NextFunction
 ): void {
-  if (req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/api/") || req.path.startsWith("/h/")) return next();
   res.sendFile(path.join(staticDir, "index.html"), (err) => {
     if (err) next();
   });

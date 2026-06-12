@@ -21,6 +21,10 @@ describe("loadConfig", () => {
     expect(cfg.generationRateLimitMax).toBe(10);
     expect(cfg.corsOrigin).toBeUndefined();
     expect(cfg.trustProxy).toBe(false);
+    expect(cfg.databasePath).toBe("./data/prism0.db");
+    expect(cfg.appBaseUrl).toBe("http://localhost:8787");
+    expect(cfg.sessionTtlMs).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(cfg.authExposeVerificationToken).toBe(false);
   });
 
   it("accepts request timeout override from env", () => {
@@ -108,6 +112,33 @@ describe("loadConfig", () => {
   it("accepts false trust proxy override from env", () => {
     const cfg = loadConfig({ OPENAI_API_KEY: "k", TRUST_PROXY: "false" });
     expect(cfg.trustProxy).toBe(false);
+  });
+
+  it("accepts database, app URL, session, and auth token overrides from env", () => {
+    const cfg = loadConfig({
+      OPENAI_API_KEY: "k",
+      DATABASE_PATH: "/tmp/prism0-test.db",
+      APP_BASE_URL: "https://app.example.com",
+      SESSION_TTL_MS: "3600000",
+      AUTH_EXPOSE_VERIFICATION_TOKEN: "true"
+    });
+    expect(cfg.databasePath).toBe("/tmp/prism0-test.db");
+    expect(cfg.appBaseUrl).toBe("https://app.example.com");
+    expect(cfg.sessionTtlMs).toBe(3_600_000);
+    expect(cfg.authExposeVerificationToken).toBe(true);
+  });
+
+  it("accepts false auth expose verification token override from env", () => {
+    const cfg = loadConfig({
+      OPENAI_API_KEY: "k",
+      AUTH_EXPOSE_VERIFICATION_TOKEN: "false"
+    });
+    expect(cfg.authExposeVerificationToken).toBe(false);
+  });
+
+  it("derives app base URL from configured port when APP_BASE_URL is omitted", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k", PORT: "9001" });
+    expect(cfg.appBaseUrl).toBe("http://localhost:9001");
   });
 
   it("prefers CLI args over env", () => {

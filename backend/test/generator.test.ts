@@ -79,6 +79,56 @@ describe("runGeneration", () => {
     expect(final?.usage?.buckets.map((bucket) => bucket.kind)).toEqual(["thinking", "generate"]);
   });
 
+  it("invokes completion and failure hooks", async () => {
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockImplementation(
+      async (_config, _idea, handlers) => {
+        handlers.onUsage?.({
+          kind: "generate",
+          promptTokens: 5,
+          completionTokens: 2,
+          reasoningTokens: 0
+        });
+        return JSON.stringify(validPayload);
+      }
+    );
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("hooked app");
+    const onComplete = vi.fn();
+    await runGeneration(config, store, run.id, run.idea, undefined, {
+      hooks: { onComplete, onFail: vi.fn() }
+    });
+    expect(onComplete).toHaveBeenCalledWith(run.id, expect.objectContaining({ inputTokens: 5 }));
+
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockRejectedValue(new Error("boom"));
+    const failRun = store.create("hooked fail");
+    const onFail = vi.fn();
+    await runGeneration(config, store, failRun.id, failRun.idea, undefined, {
+      hooks: { onComplete: vi.fn(), onFail }
+    });
+    expect(onFail).toHaveBeenCalledWith(failRun.id, expect.any(Object));
+  });
+
+  it("passes tracker usage to hooks when the store has no usage snapshot", async () => {
+    vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockResolvedValue(JSON.stringify(validPayload));
+    vi.spyOn(validateModule, "validateGeneratedProject").mockResolvedValue({
+      lintOutput: "ok",
+      testOutput: "ok"
+    });
+
+    const store = new RunStore();
+    const run = store.create("tracker usage");
+    const onComplete = vi.fn();
+    await runGeneration(config, store, run.id, run.idea, undefined, {
+      hooks: { onComplete, onFail: vi.fn() }
+    });
+    expect(onComplete).toHaveBeenCalledWith(run.id, expect.objectContaining({ inputTokens: 0 }));
+  });
+
   it("skips validation when YOLO mode is requested", async () => {
     const validateSpy = vi.spyOn(validateModule, "validateGeneratedProject");
     vi.spyOn(await import("../src/llm.js"), "generateProjectFromIdea").mockResolvedValue(

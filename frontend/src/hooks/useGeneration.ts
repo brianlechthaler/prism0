@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiFetch } from "../api";
 
 export type LlmUsageKind =
   | "generate"
@@ -93,6 +94,7 @@ type ModelOptionsResponse = {
 
 export type GenerationRequestOptions = {
   yolo?: boolean;
+  projectId?: string;
 };
 
 function requestBodyWithModel<T extends Record<string, unknown>>(
@@ -103,7 +105,8 @@ function requestBodyWithModel<T extends Record<string, unknown>>(
   const payload = {
     ...body,
     ...(model ? { model } : {}),
-    ...(options?.yolo ? { yolo: true } : {})
+    ...(options?.yolo ? { yolo: true } : {}),
+    ...(options?.projectId ? { projectId: options.projectId } : {})
   };
   return JSON.stringify(payload);
 }
@@ -227,7 +230,7 @@ export function useModelOptions() {
 
     async function loadModelOptions() {
       try {
-        const res = await fetch("/api/models");
+        const res = await apiFetch("/api/models");
         if (!res.ok) {
           throw new Error(await res.text());
         }
@@ -312,9 +315,8 @@ export function useGeneration() {
       eventSourceRef.current?.close();
       setState(beginGeneratingState({ kind: "idle" }, { runId: "", logs: ["Starting…"] }));
 
-      const res = await fetch("/api/generate", {
+      const res = await apiFetch("/api/generate", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: requestBodyWithModel({ idea }, model, options)
       });
 
@@ -346,9 +348,8 @@ export function useGeneration() {
         )
       );
 
-      const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
+      const res = await apiFetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: requestBodyWithModel({ error }, model)
       });
 
@@ -383,9 +384,8 @@ export function useGeneration() {
         )
       );
 
-      const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
+      const res = await apiFetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: requestBodyWithModel({ prompt }, model, options)
       });
 
@@ -420,9 +420,8 @@ export function useGeneration() {
         )
       );
 
-      const res = await fetch(`/api/generate/${encodeURIComponent(runId)}/validation-fix`, {
+      const res = await apiFetch(`/api/generate/${encodeURIComponent(runId)}/validation-fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: requestBodyWithModel({ error }, model)
       });
 
