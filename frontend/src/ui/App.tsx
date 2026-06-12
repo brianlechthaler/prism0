@@ -6,6 +6,7 @@ import {
   useGeneration,
   useModelOptions
 } from "../hooks/useGeneration";
+import { ExperimentalBanner } from "./ExperimentalBanner";
 import { ProgressPanel } from "./ProgressPanel";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
@@ -242,19 +243,22 @@ export function App() {
 
   return (
     <div className="page">
+      <div className="topBar">
+        <ExperimentalBanner />
+        <header className="header">
+          <div className="brand">
+            <div className="logo">prism0</div>
+            <div className="tag">ideas → apps, with a little sparkle</div>
+          </div>
+        </header>
+      </div>
+
       <div className="bg" aria-hidden="true" />
       <div className="sparkles" aria-hidden="true">
         <span />
         <span />
         <span />
       </div>
-
-      <header className="header">
-        <div className="brand">
-          <div className="logo">prism0</div>
-          <div className="tag">ideas → apps, with a little sparkle</div>
-        </div>
-      </header>
 
       <main className="main">
         <section className="card">

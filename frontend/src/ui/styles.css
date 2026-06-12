@@ -26,6 +26,26 @@ body {
   color: var(--text);
 }
 
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.experimentalBanner {
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(120, 53, 15, 0.92);
+  color: #fde68a;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.experimentalBanner strong {
+  color: #fef3c7;
+}
+
 .page {
   min-height: 100%;
   position: relative;
@@ -58,9 +78,6 @@ body {
 }
 
 .header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
   backdrop-filter: blur(10px);
   background: rgba(7, 6, 10, 0.45);
   border-bottom: 1px solid var(--border);
