@@ -1,7 +1,7 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { App } from "../src/ui/App";
+import { App, shouldSubmitIdeaOnKeyDown } from "../src/ui/App";
 import type { ModelOptionsState } from "../src/hooks/useGeneration";
 
 const mocks = vi.hoisted(() => ({
@@ -39,9 +39,9 @@ describe("App", () => {
     mocks.start.mockClear();
   });
 
-  it("renders idea input and submit button", () => {
+  it("renders idea textarea and submit button", () => {
     render(<App />);
-    expect(screen.getByLabelText(/what should we build/i).tagName).toBe("INPUT");
+    expect(screen.getByLabelText(/what should we build/i).tagName).toBe("TEXTAREA");
     expect(screen.getByLabelText(/model/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
   });
@@ -87,9 +87,9 @@ describe("App", () => {
     expect(mocks.start).toHaveBeenCalledWith("make pong", undefined, undefined);
   });
 
-  it("expands the idea input into a paragraph field on click", () => {
+  it("expands the idea field into a paragraph field on focus", () => {
     render(<App />);
-    fireEvent.click(screen.getByLabelText(/what should we build/i));
+    fireEvent.focus(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     expect(ideaField.tagName).toBe("TEXTAREA");
     expect(ideaField).toHaveAttribute("rows", "4");
@@ -180,7 +180,7 @@ describe("App", () => {
 
   it("submits multiline ideas from the paragraph field", () => {
     render(<App />);
-    fireEvent.click(screen.getByLabelText(/what should we build/i));
+    fireEvent.focus(screen.getByLabelText(/what should we build/i));
     fireEvent.change(screen.getByLabelText(/what should we build/i), {
       target: { value: "make pong\nwith neon particles" }
     });
@@ -198,10 +198,10 @@ describe("App", () => {
 
   it("submits multiline prompts when shift+enter is pressed in the paragraph field", () => {
     render(<App />);
-    fireEvent.click(screen.getByLabelText(/what should we build/i));
+    fireEvent.focus(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.change(ideaField, { target: { value: "make pong\nwith neon particles" } });
-    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(ideaField, { key: "Enter", code: "Enter", shiftKey: true });
     expect(mocks.start).toHaveBeenCalledWith("make pong\nwith neon particles", "model-a", undefined);
   });
 
@@ -213,12 +213,45 @@ describe("App", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
+  it("does not submit when shift+enter is pressed during ime composition", () => {
+    expect(
+      shouldSubmitIdeaOnKeyDown({
+        key: "Enter",
+        code: "Enter",
+        shiftKey: true,
+        isComposing: true
+      })
+    ).toBe(false);
+  });
+
+  it("does not submit when a non-enter key is pressed", () => {
+    expect(
+      shouldSubmitIdeaOnKeyDown({
+        key: "a",
+        code: "KeyA",
+        shiftKey: true,
+        isComposing: false
+      })
+    ).toBe(false);
+  });
+
+  it("submits when only the enter key code is present", () => {
+    expect(
+      shouldSubmitIdeaOnKeyDown({
+        key: "Unidentified",
+        code: "Enter",
+        shiftKey: true,
+        isComposing: false
+      })
+    ).toBe(true);
+  });
+
   it("does not submit when enter is pressed without shift in the paragraph field", () => {
     render(<App />);
-    fireEvent.click(screen.getByLabelText(/what should we build/i));
+    fireEvent.focus(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.change(ideaField, { target: { value: "make pong" } });
-    fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: false });
+    fireEvent.keyDown(ideaField, { key: "Enter", code: "Enter", shiftKey: false });
     expect(mocks.start).not.toHaveBeenCalled();
   });
 

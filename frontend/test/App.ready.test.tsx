@@ -72,7 +72,7 @@ describe("App ready state", () => {
 
   it("expands ready-state follow-up prompts with follow-up placeholder text", async () => {
     render(<App />);
-    fireEvent.click(screen.getByLabelText(/what should we add or change/i));
+    fireEvent.focus(screen.getByLabelText(/what should we add or change/i));
     const prompt = screen.getByLabelText(/what should we add or change/i);
     expect(prompt.tagName).toBe("TEXTAREA");
     expect(prompt).toHaveAttribute(

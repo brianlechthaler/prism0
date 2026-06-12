@@ -34,7 +34,7 @@ Type an idea (e.g. “make a tetris game”) and `prism0` generates a small brow
 - **Editable generated code** — Edit files directly in Sandpack; changes reload the preview immediately.
 - **Preview error reporting** — A small script injected into `index.html` posts runtime errors and unhandled rejections from the preview iframe back to the parent UI.
 - **Download as ZIP** — Export the generated project from `GET /api/project/:runId/download`.
-- **Multiline prompts** — Click the prompt field to expand it to a textarea; press **Shift+Enter** to submit.
+- **Multiline prompts** — Focus the prompt field to expand it to a larger textarea; press **Shift+Enter** to submit.
 
 ### Model configuration
 
