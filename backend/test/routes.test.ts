@@ -1,43 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import express from "express";
-import { createGenerationGuard, isRepairableSourceRun, projectFromSourceRun, registerRoutes, routeParam } from "../src/routes.js";
+import type express from "express";
+import { createGenerationGuard, isRepairableSourceRun, projectFromSourceRun, routeParam } from "../src/routes.js";
 import { RunStore } from "../src/runStore.js";
+import {
+  createTestApp,
+  testConfig as config,
+  withAuthedServer
+} from "./helpers.js";
 
-const config = {
-  openaiApiKey: "k",
-  openaiBaseUrl: "https://example.com/v1",
-  openaiModel: "m",
-  openaiModels: ["m"],
-  modelPickerEnabled: false,
-  yoloModeEnabled: false,
-  host: "127.0.0.1",
-  port: 8787,
-  requestTimeoutMs: 120_000,
-  contextWindowTokens: 128_000,
-  contextCompressThreshold: 0.9,
-  maxRuns: 100,
-  maxActiveRuns: 100,
-  generationRateLimitWindowMs: 60_000,
-  generationRateLimitMax: 100,
-  trustProxy: false
-};
-
-function createTestApp(store = new RunStore(), appConfig = config) {
-  const app = express();
-  app.use(express.json());
-  registerRoutes(app, appConfig, store);
-  return { app, store };
-}
-
-async function withServer<T>(app: express.Express, fn: (port: number) => Promise<T>): Promise<T> {
-  const server = app.listen(0);
-  const addr = server.address();
-  if (!addr || typeof addr === "string") throw new Error("no address");
-  try {
-    return await fn(addr.port);
-  } finally {
-    server.close();
-  }
+function authHeaders(cookie: string): Record<string, string> {
+  return { cookie, "content-type": "application/json" };
 }
 
 describe("registerRoutes", () => {
@@ -47,10 +19,10 @@ describe("registerRoutes", () => {
 
   it("rejects invalid generate payloads", async () => {
     const { app } = createTestApp();
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "no" })
       });
       expect(res.status).toBe(400);
@@ -64,8 +36,8 @@ describe("registerRoutes", () => {
       openaiModels: ["primary", "fallback"]
     });
 
-    await withServer(app, async (port) => {
-      const res = await fetch(`http://127.0.0.1:${port}/api/models`);
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/models`, { headers: authHeaders(cookie) });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
         enabled: false,
@@ -84,8 +56,8 @@ describe("registerRoutes", () => {
       openaiModels: ["primary", "fallback"]
     });
 
-    await withServer(app, async (port) => {
-      const res = await fetch(`http://127.0.0.1:${port}/api/models`);
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/models`, { headers: authHeaders(cookie) });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
         enabled: true,
@@ -101,8 +73,10 @@ describe("registerRoutes", () => {
     const run = store.create("make app");
     store.complete(run.id, { "index.html": "<html></html>" });
 
-    await withServer(app, async (port) => {
-      const res = await fetch(`http://127.0.0.1:${port}/api/project/${run.id}/download`);
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/project/${run.id}/download`, {
+        headers: authHeaders(cookie)
+      });
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("zip");
     });
@@ -110,8 +84,10 @@ describe("registerRoutes", () => {
 
   it("returns 404 for missing downloads", async () => {
     const { app } = createTestApp();
-    await withServer(app, async (port) => {
-      const res = await fetch(`http://127.0.0.1:${port}/api/project/missing/download`);
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/project/missing/download`, {
+        headers: authHeaders(cookie)
+      });
       expect(res.status).toBe(404);
     });
   });
@@ -120,9 +96,10 @@ describe("registerRoutes", () => {
     const { app, store } = createTestApp();
     const run = store.create("make app");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const controller = new AbortController();
       const response = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/events`, {
+        headers: authHeaders(cookie),
         signal: controller.signal
       });
       controller.abort();
@@ -137,8 +114,10 @@ describe("registerRoutes", () => {
     const { app, store } = createTestApp();
     const run = store.create("make app");
 
-    await withServer(app, async (port) => {
-      const response = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/events`);
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/events`, {
+        headers: authHeaders(cookie)
+      });
       expect(response.headers.get("content-type")).toContain("text/event-stream");
 
       store.appendLog(run.id, "working");
@@ -173,8 +152,10 @@ describe("registerRoutes", () => {
 
   it("returns 404 for missing event streams", async () => {
     const { app } = createTestApp();
-    await withServer(app, async (port) => {
-      const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/events`);
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/events`, {
+        headers: authHeaders(cookie)
+      });
       expect(res.status).toBe(404);
     });
   });
@@ -188,9 +169,10 @@ describe("registerRoutes", () => {
     store.setStatus(run.id, "running");
     store.attachAbortController(run.id);
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const stopRes = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/stop`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(cookie)
       });
       expect(stopRes.status).toBe(200);
       expect(await stopRes.json()).toEqual({ runId: run.id, status: "stopping" });
@@ -199,7 +181,8 @@ describe("registerRoutes", () => {
       store.setStatus(pauseRun.id, "running");
       store.attachAbortController(pauseRun.id);
       const pauseRes = await fetch(`http://127.0.0.1:${port}/api/generate/${pauseRun.id}/pause`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(cookie)
       });
       expect(pauseRes.status).toBe(200);
 
@@ -210,7 +193,8 @@ describe("registerRoutes", () => {
         contextState: {}
       });
       const resumeRes = await fetch(`http://127.0.0.1:${port}/api/generate/${pauseRun.id}/resume`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(cookie)
       });
       expect(resumeRes.status).toBe(200);
       expect(resumeSpy).toHaveBeenCalled();
@@ -222,26 +206,30 @@ describe("registerRoutes", () => {
     const doneRun = store.create("done");
     store.complete(doneRun.id, { "index.html": "<html/>" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const headers = authHeaders(cookie);
       expect(
-        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/stop`, { method: "POST" })).status
+        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/stop`, { method: "POST", headers }))
+          .status
       ).toBe(404);
       expect(
-        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/pause`, { method: "POST" })).status
+        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/pause`, { method: "POST", headers }))
+          .status
       ).toBe(404);
       expect(
-        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/resume`, { method: "POST" })).status
+        (await fetch(`http://127.0.0.1:${port}/api/generate/missing/resume`, { method: "POST", headers }))
+          .status
       ).toBe(404);
       expect(
-        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/stop`, { method: "POST" }))
+        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/stop`, { method: "POST", headers }))
           .status
       ).toBe(409);
       expect(
-        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/pause`, { method: "POST" }))
+        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/pause`, { method: "POST", headers }))
           .status
       ).toBe(409);
       expect(
-        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/resume`, { method: "POST" }))
+        (await fetch(`http://127.0.0.1:${port}/api/generate/${doneRun.id}/resume`, { method: "POST", headers }))
           .status
       ).toBe(409);
     });
@@ -257,10 +245,10 @@ describe("registerRoutes", () => {
       openaiModels: ["m", "fallback"]
     });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "make a tiny app", model: "fallback" })
       });
       expect(res.status).toBe(200);
@@ -272,7 +260,7 @@ describe("registerRoutes", () => {
         json.runId,
         "make a tiny app",
         "fallback",
-        { skipValidation: false }
+        expect.objectContaining({ skipValidation: false })
       );
     });
   });
@@ -283,10 +271,10 @@ describe("registerRoutes", () => {
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp(new RunStore(), { ...config, yoloModeEnabled: true });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "make a tiny app", yolo: true })
       });
       expect(res.status).toBe(200);
@@ -297,7 +285,7 @@ describe("registerRoutes", () => {
         json.runId,
         "make a tiny app",
         undefined,
-        { skipValidation: true }
+        expect.objectContaining({ skipValidation: true })
       );
     });
   });
@@ -306,10 +294,10 @@ describe("registerRoutes", () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "make a tiny app", yolo: true })
       });
       expect(res.status).toBe(400);
@@ -323,10 +311,10 @@ describe("registerRoutes", () => {
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ prompt: "add settings", yolo: true })
       });
       expect(res.status).toBe(400);
@@ -338,10 +326,10 @@ describe("registerRoutes", () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "make a tiny app", model: "missing" })
       });
       expect(res.status).toBe(400);
@@ -353,10 +341,10 @@ describe("registerRoutes", () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "make a tiny app", model: "missing" })
       });
       expect(res.status).toBe(400);
@@ -372,16 +360,16 @@ describe("registerRoutes", () => {
       generationRateLimitWindowMs: 60_000
     });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const body = JSON.stringify({ idea: "make a tiny app" });
       const first = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body
       });
       const second = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body
       });
 
@@ -395,10 +383,10 @@ describe("registerRoutes", () => {
     const { app, store } = createTestApp(new RunStore(), { ...config, maxActiveRuns: 1 });
     store.create("already running");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ idea: "make another tiny app" })
       });
 
@@ -414,10 +402,10 @@ describe("registerRoutes", () => {
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "Error: boom" })
       });
       expect(res.status).toBe(200);
@@ -433,7 +421,8 @@ describe("registerRoutes", () => {
           files: expect.objectContaining({ "index.js": "throw new Error();" })
         }),
         "Error: boom",
-        undefined
+        undefined,
+        expect.objectContaining({ hooks: expect.any(Object) })
       );
     });
   });
@@ -453,10 +442,10 @@ describe("registerRoutes", () => {
       "A tiny counter app"
     );
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ prompt: "add a settings panel" })
       });
       expect(res.status).toBe(200);
@@ -475,7 +464,7 @@ describe("registerRoutes", () => {
         }),
         "add a settings panel",
         undefined,
-        { skipValidation: false }
+        expect.objectContaining({ skipValidation: false })
       );
     });
   });
@@ -483,10 +472,10 @@ describe("registerRoutes", () => {
   it("returns 404 for missing follow-up source runs", async () => {
     const { app } = createTestApp();
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ prompt: "add settings" })
       });
       expect(res.status).toBe(404);
@@ -498,10 +487,10 @@ describe("registerRoutes", () => {
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ prompt: "" })
       });
       expect(res.status).toBe(400);
@@ -513,10 +502,10 @@ describe("registerRoutes", () => {
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ prompt: "add settings", model: "missing" })
       });
       expect(res.status).toBe(400);
@@ -528,10 +517,10 @@ describe("registerRoutes", () => {
     const { app, store } = createTestApp();
     const sourceRun = store.create("make app");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ prompt: "add settings" })
       });
       expect(res.status).toBe(409);
@@ -541,10 +530,10 @@ describe("registerRoutes", () => {
   it("returns 404 for missing runtime repair source runs", async () => {
     const { app } = createTestApp();
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "Error: boom" })
       });
       expect(res.status).toBe(404);
@@ -556,10 +545,10 @@ describe("registerRoutes", () => {
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "" })
       });
       expect(res.status).toBe(400);
@@ -571,10 +560,10 @@ describe("registerRoutes", () => {
     const sourceRun = store.create("make app");
     store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "Error: boom", model: "missing" })
       });
       expect(res.status).toBe(400);
@@ -586,10 +575,10 @@ describe("registerRoutes", () => {
     const { app, store } = createTestApp();
     const sourceRun = store.create("make app");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "Error: boom" })
       });
       expect(res.status).toBe(409);
@@ -605,12 +594,12 @@ describe("registerRoutes", () => {
     store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "broken();" });
     store.fail(sourceRun.id, "lint still failing");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(cookie),
           body: JSON.stringify({ error: "lint still failing" })
         }
       );
@@ -627,7 +616,8 @@ describe("registerRoutes", () => {
           files: expect.objectContaining({ "index.js": "broken();" })
         }),
         "lint still failing",
-        undefined
+        undefined,
+        expect.objectContaining({ hooks: expect.any(Object) })
       );
     });
   });
@@ -635,10 +625,10 @@ describe("registerRoutes", () => {
   it("returns 404 for missing validation repair source runs", async () => {
     const { app } = createTestApp();
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/validation-fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "lint still failing" })
       });
       expect(res.status).toBe(404);
@@ -651,12 +641,12 @@ describe("registerRoutes", () => {
     store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
     store.fail(sourceRun.id, "lint still failing");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(cookie),
           body: JSON.stringify({ error: "" })
         }
       );
@@ -670,12 +660,12 @@ describe("registerRoutes", () => {
     store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
     store.fail(sourceRun.id, "lint still failing");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(cookie),
           body: JSON.stringify({ error: "lint still failing", model: "missing" })
         }
       );
@@ -688,12 +678,12 @@ describe("registerRoutes", () => {
     const { app, store } = createTestApp();
     const sourceRun = store.create("make app");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authHeaders(cookie),
           body: JSON.stringify({ error: "lint still failing" })
         }
       );
@@ -710,14 +700,49 @@ describe("registerRoutes", () => {
     store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
     store.fail(sourceRun.id, "runtime repair failed");
 
-    await withServer(app, async (port) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authHeaders(cookie),
         body: JSON.stringify({ error: "Error: boom" })
       });
       expect(res.status).toBe(200);
       expect(repairSpy).toHaveBeenCalled();
+    });
+  });
+
+  it("records generation history on completion and failure", async () => {
+    const generator = await import("../src/generator.js");
+    const { app, services } = createTestApp();
+
+    vi.spyOn(generator, "runGeneration").mockImplementation((_config, _store, runId, _idea, _model, options) => {
+      options?.hooks?.onComplete?.(runId, { inputTokens: 4, outputTokens: 2, totalTokens: 6 });
+      return Promise.resolve();
+    });
+
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: authHeaders(cookie),
+        body: JSON.stringify({ idea: "make history app" })
+      });
+      const { runId } = (await res.json()) as { runId: string };
+      expect(services.history.getByRunId(runId)?.status).toBe("done");
+    });
+
+    vi.spyOn(generator, "runGeneration").mockImplementation((_config, _store, runId, _idea, _model, options) => {
+      options?.hooks?.onFail?.(runId, { inputTokens: 1, outputTokens: 0, totalTokens: 1 });
+      return Promise.resolve();
+    });
+
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: authHeaders(cookie),
+        body: JSON.stringify({ idea: "make failing history app" })
+      });
+      const { runId } = (await res.json()) as { runId: string };
+      expect(services.history.getByRunId(runId)?.status).toBe("error");
     });
   });
 });

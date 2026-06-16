@@ -1,7 +1,10 @@
 import type { Express, Request, RequestHandler } from "express";
 import { z } from "zod";
+import type { AuthenticatedRequest } from "./authMiddleware.js";
+import { requireAuth } from "./authMiddleware.js";
 import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
+import type { GenerationHistoryService } from "./generationHistory.js";
 import {
   resumeRun,
   runFollowUp,
@@ -31,13 +34,28 @@ const ValidationFixBodySchema = z.object({
 const FollowUpBodySchema = z.object({
   prompt: z.string().trim().min(3).max(2000),
   model: z.string().trim().min(1).max(200).optional(),
-  yolo: z.boolean().optional()
+  yolo: z.boolean().optional(),
+  projectId: z.string().uuid().optional()
 });
 
-export function registerRoutes(app: Express, config: AppConfig, store: RunStore): void {
-  const generationGuard = createGenerationGuard(config, store);
+const GenerateBodySchemaWithProject = GenerateBodySchema.extend({
+  projectId: z.string().uuid().optional()
+});
 
-  app.get("/api/models", (_req, res) => {
+export type RouteServices = {
+  history: GenerationHistoryService;
+};
+
+export function registerRoutes(
+  app: Express,
+  config: AppConfig,
+  store: RunStore,
+  services: RouteServices
+): void {
+  const generationGuard = createGenerationGuard(config, store);
+  const authRequired = requireAuth();
+
+  app.get("/api/models", authRequired, (_req, res) => {
     res.json({
       enabled: config.modelPickerEnabled,
       defaultModel: config.openaiModel,
@@ -46,8 +64,8 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     });
   });
 
-  app.post("/api/generate", generationGuard, (req, res) => {
-    const parsed = GenerateBodySchema.safeParse(req.body);
+  app.post("/api/generate", authRequired, generationGuard, (req, res) => {
+    const parsed = GenerateBodySchemaWithProject.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((i) => i.message).join("; "));
       return;
@@ -65,15 +83,18 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const user = (req as AuthenticatedRequest).user!;
     const run = store.create(parsed.data.idea);
+    services.history.recordStart(user.id, run.id, parsed.data.idea, parsed.data.projectId);
     store.attachAbortController(run.id);
     void runGeneration(config, store, run.id, parsed.data.idea, selectedModel, {
-      skipValidation
+      skipValidation,
+      hooks: createHistoryHooks(services.history)
     });
     res.json({ runId: run.id });
   });
 
-  app.post("/api/generate/:runId/follow-up", generationGuard, (req, res) => {
+  app.post("/api/generate/:runId/follow-up", authRequired, generationGuard, (req, res) => {
     const sourceRun = store.get(routeParam(req.params.runId));
     if (!sourceRun) {
       res.status(404).send("Run not found");
@@ -103,8 +124,10 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const user = (req as AuthenticatedRequest).user!;
     const followUpIdea = `${sourceRun.idea}\n\nFollow-up request: ${parsed.data.prompt}`;
     const run = store.create(followUpIdea);
+    services.history.recordStart(user.id, run.id, followUpIdea, parsed.data.projectId);
     store.attachAbortController(run.id);
     void runFollowUp(
       config,
@@ -114,12 +137,12 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       projectFromSourceRun(sourceRun),
       parsed.data.prompt,
       selectedModel,
-      { skipValidation }
+      { skipValidation, hooks: createHistoryHooks(services.history) }
     );
     res.json({ runId: run.id });
   });
 
-  app.post("/api/generate/:runId/fix", generationGuard, (req, res) => {
+  app.post("/api/generate/:runId/fix", authRequired, generationGuard, (req, res) => {
     const sourceRun = store.get(routeParam(req.params.runId));
     if (!sourceRun) {
       res.status(404).send("Run not found");
@@ -143,7 +166,9 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const user = (req as AuthenticatedRequest).user!;
     const run = store.create(sourceRun.idea);
+    services.history.recordStart(user.id, run.id, sourceRun.idea);
     store.attachAbortController(run.id);
     void runRuntimeRepair(
       config,
@@ -152,12 +177,13 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       sourceRun.idea,
       projectFromSourceRun(sourceRun),
       parsed.data.error,
-      selectedModel
+      selectedModel,
+      { hooks: createHistoryHooks(services.history) }
     );
     res.json({ runId: run.id });
   });
 
-  app.post("/api/generate/:runId/validation-fix", generationGuard, (req, res) => {
+  app.post("/api/generate/:runId/validation-fix", authRequired, generationGuard, (req, res) => {
     const sourceRun = store.get(routeParam(req.params.runId));
     if (!sourceRun) {
       res.status(404).send("Run not found");
@@ -181,7 +207,9 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       return;
     }
 
+    const user = (req as AuthenticatedRequest).user!;
     const run = store.create(sourceRun.idea);
+    services.history.recordStart(user.id, run.id, sourceRun.idea);
     store.attachAbortController(run.id);
     void runValidationRepair(
       config,
@@ -190,12 +218,13 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
       sourceRun.idea,
       projectFromSourceRun(sourceRun),
       parsed.data.error,
-      selectedModel
+      selectedModel,
+      { hooks: createHistoryHooks(services.history) }
     );
     res.json({ runId: run.id });
   });
 
-  app.post("/api/generate/:runId/stop", (req, res) => {
+  app.post("/api/generate/:runId/stop", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
     const run = store.get(runId);
     if (!run) {
@@ -211,7 +240,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     res.json({ runId, status: "stopping" });
   });
 
-  app.post("/api/generate/:runId/pause", (req, res) => {
+  app.post("/api/generate/:runId/pause", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
     const run = store.get(runId);
     if (!run) {
@@ -227,7 +256,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     res.json({ runId, status: "pausing" });
   });
 
-  app.post("/api/generate/:runId/resume", (req, res) => {
+  app.post("/api/generate/:runId/resume", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
     const run = store.get(runId);
     if (!run) {
@@ -244,7 +273,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     res.json({ runId, status: "resuming" });
   });
 
-  app.get("/api/generate/:runId/events", (req, res) => {
+  app.get("/api/generate/:runId/events", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
     const run = store.get(runId);
     if (!run) {
@@ -269,7 +298,7 @@ export function registerRoutes(app: Express, config: AppConfig, store: RunStore)
     req.on("close", () => unsubscribe());
   });
 
-  app.get("/api/project/:runId/download", (req, res) => {
+  app.get("/api/project/:runId/download", authRequired, (req, res) => {
     const run = store.get(routeParam(req.params.runId));
     if (!run || run.status !== "done") {
       res.status(404).send("Project not ready");
@@ -356,4 +385,15 @@ export function validateYoloRequest(config: AppConfig, yolo?: boolean): boolean 
   if (!yolo) return false;
   if (!config.yoloModeEnabled) return new Error("YOLO mode is disabled");
   return true;
+}
+
+function createHistoryHooks(history: GenerationHistoryService) {
+  return {
+    onComplete: (runId: string, usage?: import("./types.js").RunUsageMetrics) => {
+      history.recordComplete(runId, usage);
+    },
+    onFail: (runId: string, usage?: import("./types.js").RunUsageMetrics) => {
+      history.recordFailure(runId, usage);
+    }
+  };
 }

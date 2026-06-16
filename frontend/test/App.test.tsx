@@ -1,7 +1,9 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { App, shouldSubmitIdeaOnKeyDown } from "../src/ui/App";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { GeneratorApp, shouldSubmitIdeaOnKeyDown } from "../src/ui/GeneratorApp";
+import { renderWithRouter } from "./helpers";
 import type { ModelOptionsState } from "../src/hooks/useGeneration";
 
 const mocks = vi.hoisted(() => ({
@@ -27,7 +29,7 @@ vi.mock("../src/hooks/useGeneration", async (importOriginal) => {
   };
 });
 
-describe("App", () => {
+describe("GeneratorApp", () => {
   beforeEach(() => {
     mocks.modelOptions = {
       enabled: true,
@@ -40,7 +42,7 @@ describe("App", () => {
   });
 
   it("renders idea textarea and submit button", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByLabelText(/what should we build/i).tagName).toBe("TEXTAREA");
     expect(screen.getByLabelText(/model/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
@@ -54,7 +56,7 @@ describe("App", () => {
       yoloModeEnabled: false,
       isLoading: true
     };
-    const view = render(<App />);
+    const view = renderWithRouter(<GeneratorApp />);
     expect(screen.getByText(/loading configured models/i)).toBeInTheDocument();
 
     mocks.modelOptions = {
@@ -65,7 +67,7 @@ describe("App", () => {
       isLoading: false,
       error: "unavailable"
     };
-    view.rerender(<App />);
+    view.rerender(<MemoryRouter><GeneratorApp /></MemoryRouter>);
     expect(screen.getByText(/could not load models: unavailable/i)).toBeInTheDocument();
   });
 
@@ -78,7 +80,7 @@ describe("App", () => {
       isLoading: false
     };
 
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/what should we build/i), {
       target: { value: "make pong" }
@@ -88,7 +90,7 @@ describe("App", () => {
   });
 
   it("expands the idea field into a paragraph field on focus", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.focus(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     expect(ideaField.tagName).toBe("TEXTAREA");
@@ -97,7 +99,7 @@ describe("App", () => {
   });
 
   it("submits the current idea", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.change(screen.getByLabelText(/what should we build/i), {
       target: { value: "make pong" }
     });
@@ -106,7 +108,7 @@ describe("App", () => {
   });
 
   it("submits the selected model", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.change(screen.getByLabelText(/what should we build/i), {
       target: { value: "make pong" }
     });
@@ -118,7 +120,7 @@ describe("App", () => {
   });
 
   it("resets a stale selected model when options change", async () => {
-    const view = render(<App />);
+    const view = renderWithRouter(<GeneratorApp />);
     fireEvent.change(screen.getByLabelText(/model/i), {
       target: { value: "model-b" }
     });
@@ -131,7 +133,7 @@ describe("App", () => {
       yoloModeEnabled: false,
       isLoading: false
     };
-    view.rerender(<App />);
+    view.rerender(<MemoryRouter><GeneratorApp /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByLabelText(/model/i)).toHaveValue("model-a");
@@ -139,7 +141,7 @@ describe("App", () => {
   });
 
   it("resets a stale selected model to the first option when no default exists", async () => {
-    const view = render(<App />);
+    const view = renderWithRouter(<GeneratorApp />);
     fireEvent.change(screen.getByLabelText(/model/i), {
       target: { value: "model-b" }
     });
@@ -151,7 +153,7 @@ describe("App", () => {
       yoloModeEnabled: false,
       isLoading: false
     };
-    view.rerender(<App />);
+    view.rerender(<MemoryRouter><GeneratorApp /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByLabelText(/model/i)).toHaveValue("model-c");
@@ -159,7 +161,7 @@ describe("App", () => {
   });
 
   it("clears a stale selected model when no options remain", async () => {
-    const view = render(<App />);
+    const view = renderWithRouter(<GeneratorApp />);
     fireEvent.change(screen.getByLabelText(/model/i), {
       target: { value: "model-b" }
     });
@@ -171,7 +173,7 @@ describe("App", () => {
       yoloModeEnabled: false,
       isLoading: false
     };
-    view.rerender(<App />);
+    view.rerender(<MemoryRouter><GeneratorApp /></MemoryRouter>);
 
     await waitFor(() => {
       expect(screen.getByLabelText(/model/i)).toBeDisabled();
@@ -179,7 +181,7 @@ describe("App", () => {
   });
 
   it("submits multiline ideas from the paragraph field", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.focus(screen.getByLabelText(/what should we build/i));
     fireEvent.change(screen.getByLabelText(/what should we build/i), {
       target: { value: "make pong\nwith neon particles" }
@@ -189,7 +191,7 @@ describe("App", () => {
   });
 
   it("submits the prompt when shift+enter is pressed in the idea field", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.change(ideaField, { target: { value: "make pong" } });
     fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
@@ -197,7 +199,7 @@ describe("App", () => {
   });
 
   it("submits multiline prompts when shift+enter is pressed in the paragraph field", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.focus(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.change(ideaField, { target: { value: "make pong\nwith neon particles" } });
@@ -206,7 +208,7 @@ describe("App", () => {
   });
 
   it("does not submit when shift+enter is pressed with an empty prompt", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.change(ideaField, { target: { value: "   " } });
     fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
@@ -247,12 +249,25 @@ describe("App", () => {
   });
 
   it("does not submit when enter is pressed without shift in the paragraph field", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.focus(screen.getByLabelText(/what should we build/i));
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.change(ideaField, { target: { value: "make pong" } });
     fireEvent.keyDown(ideaField, { key: "Enter", code: "Enter", shiftKey: false });
     expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("shows the single-model hint when only one backend model exists", () => {
+    mocks.modelOptions = {
+      enabled: true,
+      defaultModel: "model-a",
+      models: ["model-a"],
+      yoloModeEnabled: false,
+      isLoading: false
+    };
+
+    renderWithRouter(<GeneratorApp />);
+    expect(screen.getByText(/only one backend model is configured/i)).toBeInTheDocument();
   });
 
   it("shows YOLO mode controls when enabled and submits the flag", () => {
@@ -264,7 +279,7 @@ describe("App", () => {
       isLoading: false
     };
 
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByText(/yolo mode — skip lint\/tests/i)).toBeInTheDocument();
     expect(screen.getByText(/may be unsafe, broken/i)).toBeInTheDocument();
 
@@ -277,7 +292,7 @@ describe("App", () => {
   });
 
   it("hides YOLO mode controls when disabled on the backend", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.queryByText(/yolo mode — skip lint\/tests/i)).not.toBeInTheDocument();
   });
 });

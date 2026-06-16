@@ -1,7 +1,8 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { App } from "../src/ui/App";
+import { fireEvent, screen } from "@testing-library/react";
+import { GeneratorApp } from "../src/ui/GeneratorApp";
+import { renderWithRouter } from "./helpers";
 
 const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
@@ -49,7 +50,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
   })
 }));
 
-describe("App paused state", () => {
+describe("GeneratorApp paused state", () => {
   beforeEach(() => {
     mocks.stop.mockClear();
     mocks.pause.mockClear();
@@ -58,12 +59,20 @@ describe("App paused state", () => {
   });
 
   it("shows resume and restart controls while paused", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByRole("button", { name: /resume/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /resume/i }));
     expect(mocks.resume).toHaveBeenCalledWith("paused-1");
 
     fireEvent.click(screen.getByRole("button", { name: /restart/i }));
     expect(mocks.restart).toHaveBeenCalledWith("make a tiny tetris-like game", "model-a", undefined);
+  });
+
+  it("passes projectId when restarting an app edit session", () => {
+    renderWithRouter(<GeneratorApp projectId="project-123" />);
+    fireEvent.click(screen.getByRole("button", { name: /restart/i }));
+    expect(mocks.restart).toHaveBeenCalledWith("make a tiny tetris-like game", "model-a", {
+      projectId: "project-123"
+    });
   });
 });

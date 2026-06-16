@@ -24,6 +24,12 @@ Set secrets in the deployment platform, not in source control or container image
 | `MAX_RUNS` | No | `100` | Maximum retained completed/failed run records per process. |
 | `CORS_ORIGIN` | No | unset | Set only when frontend and API are on different origins. |
 | `TRUST_PROXY` | No | `false` | Set to `true` behind trusted platform/load balancer proxies. |
+| `DATABASE_PATH` | No | `./data/prism0.db` | SQLite database for users, sessions, and hosted projects. **Use a persistent volume.** |
+| `APP_BASE_URL` | No | `http://localhost:8787` | Public HTTPS origin for email verification links. |
+| `SESSION_TTL_MS` | No | `604800000` | Session lifetime (ms). |
+| `AUTH_EXPOSE_VERIFICATION_TOKEN` | No | `false` | Dev/test only — never `true` in production. |
+
+Account, hosting, and API details: [auth-and-hosting.md](./auth-and-hosting.md).
 
 ## Verify before deploying
 
@@ -84,6 +90,8 @@ docker build -t prism0 .
 docker run --rm \
   -p 8787:8787 \
   -e OPENAI_API_KEY="your-key" \
+  -e APP_BASE_URL="https://your-public-host.example" \
+  -v prism0-data:/app/data \
   prism0
 ```
 
@@ -96,10 +104,12 @@ sudo docker build --network=host -t prism0 .
 The image:
 
 - Builds frontend and backend artifacts in a separate build stage.
+- Compiles the `better-sqlite3` native module in the build stage and copies it into the slim runtime image.
 - Runs only the production backend command in the runtime stage.
 - Uses the image health check at `/api/health`.
 - Runs as the non-root `node` user.
 - Keeps the validation harness writable for generated project checks.
+- Stores SQLite data under `/app/data` by default — mount a named volume or bind mount so accounts and hosted projects survive restarts.
 
 Publish an image for production:
 
@@ -231,6 +241,9 @@ Render terminates TLS and proxies to the container, so same-origin deployments u
 
 - Health endpoint: `GET /api/health`.
 - Logs are written to stdout/stderr for platform collection.
+- **Back up `DATABASE_PATH`** (users, sessions, hosted projects, history). Without a persistent volume, container restarts wipe accounts.
+- Set **`APP_BASE_URL`** to the public URL users open in the browser so verification emails link correctly.
+- Email is logged to stdout by default; integrate a real mail provider before production signup.
 - Generated validation workspaces are ephemeral and safe to discard on restart.
 - `MAX_RUNS` bounds retained completed/failed run metadata per process.
 - Long generation requests depend on upstream model availability; tune `REQUEST_TIMEOUT_MS` and model choice for your provider.

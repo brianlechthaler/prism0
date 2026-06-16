@@ -9,30 +9,12 @@ import {
   sendIndexFallback,
   startServer
 } from "../src/server.js";
+import { testConfig } from "./helpers.js";
 
 const distDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../frontend/dist"
 );
-
-const testConfig = {
-  openaiApiKey: "k",
-  openaiBaseUrl: "https://example.com/v1",
-  openaiModel: "m",
-  openaiModels: ["m"],
-  modelPickerEnabled: false,
-  yoloModeEnabled: false,
-  host: "127.0.0.1",
-  port: 8787,
-  requestTimeoutMs: 120_000,
-  contextWindowTokens: 128_000,
-  contextCompressThreshold: 0.9,
-  maxRuns: 100,
-  maxActiveRuns: 5,
-  generationRateLimitWindowMs: 60_000,
-  generationRateLimitMax: 10,
-  trustProxy: false
-};
 
 describe("createApp", () => {
   afterEach(async () => {
