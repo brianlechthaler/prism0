@@ -5,6 +5,7 @@ import {
   assertOwner,
   clearSessionCookie,
   createAuthMiddleware,
+  createAuthGuard,
   readSessionCookie,
   requireAuth,
   SESSION_COOKIE,
@@ -128,6 +129,21 @@ describe("authMiddleware", () => {
     const denied = await fetch(`http://127.0.0.1:${port}/protected`);
     expect(denied.status).toBe(401);
     expect(await denied.text()).toBe("Authentication required");
+
+    server.close();
+  });
+
+  it("skips authentication when the auth guard is disabled", async () => {
+    const app = express();
+    app.use(createAuthGuard(false));
+    app.get("/protected", (_req, res) => res.send("ok"));
+
+    const server = app.listen(0);
+    const port = (server.address() as { port: number }).port;
+
+    const allowed = await fetch(`http://127.0.0.1:${port}/protected`);
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toBe("ok");
 
     server.close();
   });

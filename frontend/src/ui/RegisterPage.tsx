@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { AuthShell } from "./LoginPage";
 
 export function RegisterPage() {
-  const { register, features } = useAuth();
+  const { register, features, isLoading } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -12,6 +12,10 @@ export function RegisterPage() {
   const [error, setError] = useState<string | undefined>();
   const [verificationToken, setVerificationToken] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!isLoading && !features.loginEnabled) {
+    return <Navigate to="/app" replace />;
+  }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

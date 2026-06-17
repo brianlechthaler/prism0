@@ -5,7 +5,8 @@ import { RunStore } from "../src/runStore.js";
 import {
   createTestApp,
   testConfig as config,
-  withAuthedServer
+  withAuthedServer,
+  withServer
 } from "./helpers.js";
 
 function authHeaders(cookie: string): Record<string, string> {
@@ -26,6 +27,20 @@ describe("registerRoutes", () => {
         body: JSON.stringify({ idea: "no" })
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  it("allows generation without authentication when login is disabled", async () => {
+    const { app } = createTestApp(new RunStore(), { ...config, authEnabled: false });
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idea: "make a counter app" })
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { runId: string };
+      expect(json.runId).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
 

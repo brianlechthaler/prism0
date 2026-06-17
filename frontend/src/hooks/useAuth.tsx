@@ -52,6 +52,7 @@ export type TokenSummary = {
 };
 
 export type AuthFeatures = {
+  loginEnabled: boolean;
   emailEnabled: boolean;
 };
 
@@ -80,7 +81,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(null);
-  const [features, setFeatures] = useState<AuthFeatures>({ emailEnabled: false });
+  const [features, setFeatures] = useState<AuthFeatures>({ loginEnabled: false, emailEnabled: false });
   const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {

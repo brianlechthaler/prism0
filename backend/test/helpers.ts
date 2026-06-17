@@ -41,7 +41,8 @@ export const testConfig: AppConfig = {
   authRateLimitMax: 100,
   authLoginMaxFailures: 100,
   authLoginLockoutMs: 60_000,
-  authEmailEnabled: true
+  authEmailEnabled: true,
+  authEnabled: true
 };
 
 export type TestServices = {
@@ -78,7 +79,7 @@ export function createTestApp(
   app.use(express.json());
   app.use(createAuthMiddleware(services.auth));
   registerAuthRoutes(app, services.auth, services.projects, services.history, config);
-  registerProjectRoutes(app, services.projects, store);
+  registerProjectRoutes(app, services.projects, store, config.authEnabled);
   registerHostingRoutes(app, services.projects);
   registerRoutes(app, config, store, { history: services.history });
   return { app, store, services };

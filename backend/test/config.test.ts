@@ -30,6 +30,7 @@ describe("loadConfig", () => {
     expect(cfg.authLoginMaxFailures).toBe(5);
     expect(cfg.authLoginLockoutMs).toBe(15 * 60 * 1000);
     expect(cfg.authEmailEnabled).toBe(false);
+    expect(cfg.authEnabled).toBe(false);
   });
 
   it("accepts request timeout override from env", () => {
@@ -112,6 +113,16 @@ describe("loadConfig", () => {
   it("allows YOLO mode to be disabled via CLI", () => {
     const cfg = loadConfig({ OPENAI_API_KEY: "k" }, { yoloModeEnabled: false });
     expect(cfg.yoloModeEnabled).toBe(false);
+  });
+
+  it("keeps login disabled unless enabled via CLI", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k" });
+    expect(cfg.authEnabled).toBe(false);
+  });
+
+  it("enables login when requested via CLI", () => {
+    const cfg = loadConfig({ OPENAI_API_KEY: "k" }, { authEnabled: true });
+    expect(cfg.authEnabled).toBe(true);
   });
 
   it("accepts false trust proxy override from env", () => {

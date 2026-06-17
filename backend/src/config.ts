@@ -67,6 +67,7 @@ export type AppConfig = {
   authLoginMaxFailures: number;
   authLoginLockoutMs: number;
   authEmailEnabled: boolean;
+  authEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig {
@@ -142,7 +143,8 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     authRateLimitMax: parsed.data.AUTH_RATE_LIMIT_MAX ?? 20,
     authLoginMaxFailures: parsed.data.AUTH_LOGIN_MAX_FAILURES ?? 5,
     authLoginLockoutMs: parsed.data.AUTH_LOGIN_LOCKOUT_MS ?? 15 * 60 * 1000,
-    authEmailEnabled: parsed.data.AUTH_EMAIL_ENABLED ?? false
+    authEmailEnabled: parsed.data.AUTH_EMAIL_ENABLED ?? false,
+    authEnabled: cli.authEnabled ?? false
   };
 }
 

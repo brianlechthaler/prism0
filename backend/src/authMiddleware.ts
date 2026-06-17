@@ -41,6 +41,11 @@ export function requireAuth(): RequestHandler {
   };
 }
 
+export function createAuthGuard(authEnabled: boolean): RequestHandler {
+  if (authEnabled) return requireAuth();
+  return (_req, _res, next) => next();
+}
+
 export function setSessionCookie(res: Response, token: string, maxAgeMs: number): void {
   const secure = process.env.NODE_ENV === "production";
   const parts = [
