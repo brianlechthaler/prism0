@@ -33,9 +33,12 @@ function expectApiPost(
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify(body),
+      json: body,
       credentials: "include"
     })
   );
+  const headers = fetchMock.mock.calls.find((call) => call[0] === url)?.[1]?.headers as Headers;
+  expect(headers.get("content-type")).toBe("application/json");
 }
 
 describe("useGeneration", () => {
@@ -783,6 +786,7 @@ describe("useGeneration", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/generate/r1/stop", { method: "POST" });
     expect(fetchMock).toHaveBeenCalledWith("/api/generate", expect.objectContaining({
       method: "POST",
+      json: { idea: "fresh idea" },
       body: JSON.stringify({ idea: "fresh idea" })
     }));
   });
