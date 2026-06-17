@@ -95,7 +95,7 @@ export async function streamProjectCompletion(
   options: ModelRequestOptions = {}
 ): Promise<string> {
   const models = getModelCandidates(config, options.selectedModel);
-  let lastError: unknown = new Error("Model request failed");
+  let lastError: Error = new Error("Model request failed");
 
   for (const [index, model] of models.entries()) {
     throwIfAborted(options.signal);
@@ -110,10 +110,10 @@ export async function streamProjectCompletion(
         options.signal
       );
     } catch (error) {
-      lastError = error;
+      lastError = toNormalizedLlmError(error);
       const nextModel = models[index + 1];
       if (nextModel) {
-        handlers.onModelFallback?.(model, errorMessage(error), nextModel);
+        handlers.onModelFallback?.(model, errorMessage(lastError), nextModel);
       }
     }
   }
@@ -203,6 +203,11 @@ async function streamProjectCompletionWithModel(
 
 function errorMessage(error: unknown): string {
   return normalizeLlmErrorMessage(error);
+}
+
+function toNormalizedLlmError(error: unknown): Error {
+  const message = normalizeLlmErrorMessage(error);
+  return error instanceof Error ? new Error(message, { cause: error }) : new Error(message);
 }
 
 function normalizeLlmErrorMessage(error: unknown): string {
