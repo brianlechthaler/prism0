@@ -39,6 +39,23 @@ describe("LoginPage", () => {
   beforeEach(() => {
     useAuthMock.login.mockReset();
     navigateMock.mockReset();
+    useAuthMock.features.loginEnabled = true;
+    useAuthMock.isLoading = false;
+  });
+
+  it("redirects to the generator when login is disabled", () => {
+    useAuthMock.features.loginEnabled = false;
+
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/app" element={<div>generator</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("generator")).toBeInTheDocument();
   });
 
   it("logs in and navigates to the dashboard by default", async () => {

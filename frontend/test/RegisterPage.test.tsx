@@ -1,6 +1,7 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { RegisterPage } from "../src/ui/RegisterPage";
 import { renderWithRouter } from "./helpers";
 
@@ -26,6 +27,21 @@ describe("RegisterPage", () => {
     navigateMock.mockReset();
     featuresMock.loginEnabled = true;
     featuresMock.emailEnabled = true;
+  });
+
+  it("redirects to the generator when login is disabled", () => {
+    featuresMock.loginEnabled = false;
+
+    render(
+      <MemoryRouter initialEntries={["/register"]}>
+        <Routes>
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/app" element={<div>generator</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("generator")).toBeInTheDocument();
   });
 
   it("creates an account without email fields when email is disabled", async () => {

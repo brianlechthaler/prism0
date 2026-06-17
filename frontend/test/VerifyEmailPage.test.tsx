@@ -31,7 +31,23 @@ describe("VerifyEmailPage", () => {
   beforeEach(() => {
     verifyEmailMock.mockReset();
     resendVerificationMock.mockReset();
+    featuresMock.loginEnabled = true;
     featuresMock.emailEnabled = true;
+  });
+
+  it("redirects to the generator when login is disabled", () => {
+    featuresMock.loginEnabled = false;
+
+    render(
+      <MemoryRouter initialEntries={["/verify-email"]}>
+        <Routes>
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/app" element={<div>generator</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("generator")).toBeInTheDocument();
   });
 
   it("redirects to login when email is disabled", () => {
