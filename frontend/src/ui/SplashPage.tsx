@@ -1,7 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 
 export function SplashPage() {
+  const { features, isLoading } = useAuth();
+
   return (
     <div className="page">
       <div className="bg" aria-hidden="true" />
@@ -17,12 +20,16 @@ export function SplashPage() {
           <div className="tag">ideas → apps, with a little sparkle</div>
         </div>
         <nav className="headerNav">
-          <Link className="pillLink" to="/login">
-            Log in
-          </Link>
-          <Link className="btn btnSmall" to="/register">
-            Create account
-          </Link>
+          {!isLoading && features.loginEnabled ? (
+            <>
+              <Link className="pillLink" to="/login">
+                Log in
+              </Link>
+              <Link className="btn btnSmall" to="/register">
+                Create account
+              </Link>
+            </>
+          ) : null}
         </nav>
       </header>
 
@@ -35,12 +42,20 @@ export function SplashPage() {
             URL, and manage versions from your dashboard.
           </p>
           <div className="splashActions">
-            <Link className="btn" to="/register">
-              Get started
-            </Link>
-            <Link className="pillLink" to="/login">
-              I already have an account
-            </Link>
+            {!isLoading && features.loginEnabled ? (
+              <>
+                <Link className="btn" to="/register">
+                  Get started
+                </Link>
+                <Link className="pillLink" to="/login">
+                  I already have an account
+                </Link>
+              </>
+            ) : (
+              <Link className="btn" to="/app">
+                Open generator
+              </Link>
+            )}
           </div>
         </section>
 

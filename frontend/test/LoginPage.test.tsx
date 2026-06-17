@@ -6,7 +6,9 @@ import { AuthShell, LoginPage } from "../src/ui/LoginPage";
 import { renderWithRouter } from "./helpers";
 
 const useAuthMock = vi.hoisted(() => ({
-  login: vi.fn()
+  login: vi.fn(),
+  features: { loginEnabled: true, emailEnabled: true },
+  isLoading: false
 }));
 
 const navigateMock = vi.hoisted(() => vi.fn());

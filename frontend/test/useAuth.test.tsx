@@ -20,7 +20,10 @@ type ApiHandler = (url: string, options?: RequestInit) => Response | Promise<Res
 
 function setupApiMock(
   handlers: Record<string, ApiHandler | Response>,
-  features: { emailEnabled: boolean } = { emailEnabled: false }
+  features: { loginEnabled: boolean; emailEnabled: boolean } = {
+    loginEnabled: false,
+    emailEnabled: false
+  }
 ) {
   apiFetchMock.mockImplementation((url: string, options?: RequestInit) => {
     if (url === "/api/auth/features") {
@@ -48,7 +51,7 @@ describe("useAuth", () => {
       {
         "/api/auth/me": jsonResponse({ authenticated: true, user })
       },
-      { emailEnabled: true }
+      { loginEnabled: true, emailEnabled: true }
     );
 
     const { result } = renderHook(() => useAuth(), { wrapper });
@@ -57,7 +60,7 @@ describe("useAuth", () => {
       expect(result.current.isLoading).toBe(false);
     });
     expect(result.current.user).toEqual(user);
-    expect(result.current.features).toEqual({ emailEnabled: true });
+    expect(result.current.features).toEqual({ loginEnabled: true, emailEnabled: true });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/features");
     expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/me");
   });

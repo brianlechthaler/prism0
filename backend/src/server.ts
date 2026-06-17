@@ -59,7 +59,7 @@ export function createApp(
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   registerAuthRoutes(app, services.auth, services.projects, services.history, config);
-  registerProjectRoutes(app, services.projects, store);
+  registerProjectRoutes(app, services.projects, store, config.authEnabled);
   registerHostingRoutes(app, services.projects);
   registerRoutes(app, config, store, { history: services.history });
 

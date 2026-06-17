@@ -45,7 +45,7 @@ function renderApp(route = "/") {
 function defaultAuthMock(overrides: Record<string, unknown> = {}) {
   return {
     user: null,
-    features: { emailEnabled: false },
+    features: { loginEnabled: true, emailEnabled: false },
     isLoading: false,
     refresh: vi.fn(),
     ...overrides
@@ -80,7 +80,7 @@ describe("App router", () => {
   it("renders verify email when the feature is enabled", () => {
     useAuthMock.mockReturnValue(
       defaultAuthMock({
-        features: { emailEnabled: true },
+        features: { loginEnabled: true, emailEnabled: true },
         verifyEmail: vi.fn(),
         resendVerification: vi.fn()
       })

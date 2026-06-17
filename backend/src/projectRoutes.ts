@@ -20,7 +20,23 @@ const RevertSchema = z.object({
   versionId: z.string().uuid()
 });
 
-export function registerProjectRoutes(app: Express, projects: ProjectStore, store: RunStore): void {
+export function registerProjectRoutes(
+  app: Express,
+  projects: ProjectStore,
+  store: RunStore,
+  authEnabled = true
+): void {
+  if (authEnabled) {
+    registerAuthenticatedProjectRoutes(app, projects, store);
+  }
+  registerManageProjectRoutes(app, projects);
+}
+
+function registerAuthenticatedProjectRoutes(
+  app: Express,
+  projects: ProjectStore,
+  store: RunStore
+): void {
   app.get("/api/projects", requireAuth(), (req, res) => {
     const user = (req as AuthenticatedRequest).user!;
     res.json({ projects: projects.listForUser(user.id) });
@@ -67,24 +83,6 @@ export function registerProjectRoutes(app: Express, projects: ProjectStore, stor
       project,
       versions: projects.listVersions(projectId),
       files: projects.getCurrentFiles(projectId)
-    });
-  });
-
-  app.get("/api/projects/manage/:editToken", (req, res) => {
-    const editToken = routeParam(req.params.editToken);
-    const project = projects.getProjectByEditToken(editToken);
-    if (!project) {
-      res.status(404).send("Project not found");
-      return;
-    }
-
-    const user = (req as AuthenticatedRequest).user;
-    const versions = projects.listVersions(project.id);
-    res.json({
-      project,
-      versions,
-      files: projects.getCurrentFiles(project.id),
-      canEdit: Boolean(user && user.id === project.userId)
     });
   });
 
@@ -149,6 +147,26 @@ export function registerProjectRoutes(app: Express, projects: ProjectStore, stor
     } catch (error) {
       handleProjectError(res, error);
     }
+  });
+}
+
+function registerManageProjectRoutes(app: Express, projects: ProjectStore): void {
+  app.get("/api/projects/manage/:editToken", (req, res) => {
+    const editToken = routeParam(req.params.editToken);
+    const project = projects.getProjectByEditToken(editToken);
+    if (!project) {
+      res.status(404).send("Project not found");
+      return;
+    }
+
+    const user = (req as AuthenticatedRequest).user;
+    const versions = projects.listVersions(project.id);
+    res.json({
+      project,
+      versions,
+      files: projects.getCurrentFiles(project.id),
+      canEdit: Boolean(user && user.id === project.userId)
+    });
   });
 
   app.post("/api/projects/manage/:editToken/revert", (req, res) => {

@@ -43,6 +43,10 @@ export function VerifyEmailPage() {
       });
   }, [features.emailEnabled, location.hash, searchParams, verifyEmail]);
 
+  if (!isLoading && !features.loginEnabled) {
+    return <Navigate to="/app" replace />;
+  }
+
   if (!isLoading && !features.emailEnabled) {
     return <Navigate to="/login" replace />;
   }

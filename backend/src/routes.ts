@@ -1,7 +1,8 @@
 import type { Express, Request, RequestHandler } from "express";
 import { z } from "zod";
 import type { AuthenticatedRequest } from "./authMiddleware.js";
-import { requireAuth } from "./authMiddleware.js";
+import { createAuthGuard } from "./authMiddleware.js";
+import type { PublicUser } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import { createProjectZip } from "./download.js";
 import type { GenerationHistoryService } from "./generationHistory.js";
@@ -53,7 +54,7 @@ export function registerRoutes(
   services: RouteServices
 ): void {
   const generationGuard = createGenerationGuard(config, store);
-  const authRequired = requireAuth();
+  const authRequired = createAuthGuard(config.authEnabled);
 
   app.get("/api/models", authRequired, (_req, res) => {
     res.json({
@@ -83,13 +84,19 @@ export function registerRoutes(
       return;
     }
 
-    const user = (req as AuthenticatedRequest).user!;
+    const user = (req as AuthenticatedRequest).user;
     const run = store.create(parsed.data.idea);
-    services.history.recordStart(user.id, run.id, parsed.data.idea, parsed.data.projectId);
+    const historyHooks = startGenerationHistory(
+      services.history,
+      user,
+      run.id,
+      parsed.data.idea,
+      parsed.data.projectId
+    );
     store.attachAbortController(run.id);
     void runGeneration(config, store, run.id, parsed.data.idea, selectedModel, {
       skipValidation,
-      hooks: createHistoryHooks(services.history)
+      hooks: historyHooks
     });
     res.json({ runId: run.id });
   });
@@ -124,10 +131,16 @@ export function registerRoutes(
       return;
     }
 
-    const user = (req as AuthenticatedRequest).user!;
+    const user = (req as AuthenticatedRequest).user;
     const followUpIdea = `${sourceRun.idea}\n\nFollow-up request: ${parsed.data.prompt}`;
     const run = store.create(followUpIdea);
-    services.history.recordStart(user.id, run.id, followUpIdea, parsed.data.projectId);
+    const historyHooks = startGenerationHistory(
+      services.history,
+      user,
+      run.id,
+      followUpIdea,
+      parsed.data.projectId
+    );
     store.attachAbortController(run.id);
     void runFollowUp(
       config,
@@ -137,7 +150,7 @@ export function registerRoutes(
       projectFromSourceRun(sourceRun),
       parsed.data.prompt,
       selectedModel,
-      { skipValidation, hooks: createHistoryHooks(services.history) }
+      { skipValidation, hooks: historyHooks }
     );
     res.json({ runId: run.id });
   });
@@ -166,9 +179,9 @@ export function registerRoutes(
       return;
     }
 
-    const user = (req as AuthenticatedRequest).user!;
+    const user = (req as AuthenticatedRequest).user;
     const run = store.create(sourceRun.idea);
-    services.history.recordStart(user.id, run.id, sourceRun.idea);
+    const historyHooks = startGenerationHistory(services.history, user, run.id, sourceRun.idea);
     store.attachAbortController(run.id);
     void runRuntimeRepair(
       config,
@@ -178,7 +191,7 @@ export function registerRoutes(
       projectFromSourceRun(sourceRun),
       parsed.data.error,
       selectedModel,
-      { hooks: createHistoryHooks(services.history) }
+      { hooks: historyHooks }
     );
     res.json({ runId: run.id });
   });
@@ -207,9 +220,9 @@ export function registerRoutes(
       return;
     }
 
-    const user = (req as AuthenticatedRequest).user!;
+    const user = (req as AuthenticatedRequest).user;
     const run = store.create(sourceRun.idea);
-    services.history.recordStart(user.id, run.id, sourceRun.idea);
+    const historyHooks = startGenerationHistory(services.history, user, run.id, sourceRun.idea);
     store.attachAbortController(run.id);
     void runValidationRepair(
       config,
@@ -219,7 +232,7 @@ export function registerRoutes(
       projectFromSourceRun(sourceRun),
       parsed.data.error,
       selectedModel,
-      { hooks: createHistoryHooks(services.history) }
+      { hooks: historyHooks }
     );
     res.json({ runId: run.id });
   });
@@ -396,4 +409,16 @@ function createHistoryHooks(history: GenerationHistoryService) {
       history.recordFailure(runId, usage);
     }
   };
+}
+
+function startGenerationHistory(
+  history: GenerationHistoryService,
+  user: PublicUser | undefined,
+  runId: string,
+  idea: string,
+  projectId?: string
+) {
+  if (!user) return undefined;
+  history.recordStart(user.id, runId, idea, projectId);
+  return createHistoryHooks(history);
 }

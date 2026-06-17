@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { safeRedirectPath } from "../safeRedirect";
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, features, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [username, setUsername] = useState("");
@@ -21,6 +21,10 @@ export function LoginPage() {
     typeof location.state === "object" && location.state && "message" in location.state
       ? String(location.state.message)
       : undefined;
+
+  if (!isLoading && !features.loginEnabled) {
+    return <Navigate to="/app" replace />;
+  }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

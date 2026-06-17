@@ -6,10 +6,10 @@ import { renderWithRouter } from "./helpers";
 
 const registerMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
-const featuresMock = vi.hoisted(() => ({ emailEnabled: true }));
+const featuresMock = vi.hoisted(() => ({ loginEnabled: true, emailEnabled: true }));
 
 vi.mock("../src/hooks/useAuth", () => ({
-  useAuth: () => ({ register: registerMock, features: featuresMock })
+  useAuth: () => ({ register: registerMock, features: featuresMock, isLoading: false })
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -24,6 +24,7 @@ describe("RegisterPage", () => {
   beforeEach(() => {
     registerMock.mockReset();
     navigateMock.mockReset();
+    featuresMock.loginEnabled = true;
     featuresMock.emailEnabled = true;
   });
 

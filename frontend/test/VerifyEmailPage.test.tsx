@@ -6,7 +6,7 @@ import { VerifyEmailPage } from "../src/ui/VerifyEmailPage";
 
 const verifyEmailMock = vi.hoisted(() => vi.fn());
 const resendVerificationMock = vi.hoisted(() => vi.fn());
-const featuresMock = vi.hoisted(() => ({ emailEnabled: true }));
+const featuresMock = vi.hoisted(() => ({ loginEnabled: true, emailEnabled: true }));
 
 vi.mock("../src/hooks/useAuth", () => ({
   useAuth: () => ({
