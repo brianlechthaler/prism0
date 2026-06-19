@@ -111,14 +111,13 @@ function requestBodyWithModel<T extends Record<string, unknown>>(
   body: T,
   model?: string,
   options?: GenerationRequestOptions
-): string {
-  const payload = {
+): T & { model?: string; yolo?: boolean; projectId?: string } {
+  return {
     ...body,
     ...(model ? { model } : {}),
     ...(options?.yolo ? { yolo: true } : {}),
     ...(options?.projectId ? { projectId: options.projectId } : {})
   };
-  return JSON.stringify(payload);
 }
 
 export function appendLogLine(state: GenerationState, line: string): GenerationState {
@@ -414,7 +413,7 @@ export function useGeneration() {
 
       const res = await apiFetch("/api/generate", {
         method: "POST",
-        body: requestBodyWithModel({ idea }, model, options)
+        json: requestBodyWithModel({ idea }, model, options)
       });
 
       if (!res.ok) {
@@ -460,7 +459,7 @@ export function useGeneration() {
 
       const res = await apiFetch(`/api/generate/${encodeURIComponent(runId)}/fix`, {
         method: "POST",
-        body: requestBodyWithModel({ error }, model)
+        json: requestBodyWithModel({ error }, model)
       });
 
       if (!res.ok) {
@@ -496,7 +495,7 @@ export function useGeneration() {
 
       const res = await apiFetch(`/api/generate/${encodeURIComponent(runId)}/follow-up`, {
         method: "POST",
-        body: requestBodyWithModel({ prompt }, model, options)
+        json: requestBodyWithModel({ prompt }, model, options)
       });
 
       if (!res.ok) {
@@ -532,7 +531,7 @@ export function useGeneration() {
 
       const res = await apiFetch(`/api/generate/${encodeURIComponent(runId)}/validation-fix`, {
         method: "POST",
-        body: requestBodyWithModel({ error }, model)
+        json: requestBodyWithModel({ error }, model)
       });
 
       if (!res.ok) {

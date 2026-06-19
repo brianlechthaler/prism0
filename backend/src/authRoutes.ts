@@ -57,6 +57,7 @@ export type AuthRoutesConfig = Pick<
   | "authLoginMaxFailures"
   | "authLoginLockoutMs"
   | "authEmailEnabled"
+  | "authEnabled"
 >;
 
 export function registerAuthRoutes(
@@ -76,10 +77,18 @@ export function registerAuthRoutes(
     new LoginFailureTracker(config.authLoginMaxFailures, config.authLoginLockoutMs);
 
   app.get("/api/auth/features", (_req, res) => {
-    res.json({ emailEnabled: config.authEmailEnabled });
+    res.json({
+      loginEnabled: config.authEnabled,
+      emailEnabled: config.authEnabled && config.authEmailEnabled
+    });
   });
 
   app.get("/api/auth/me", (req, res) => {
+    if (!config.authEnabled) {
+      res.json({ authenticated: false });
+      return;
+    }
+
     const user = (req as AuthenticatedRequest).user;
     if (!user) {
       res.status(401).json({ authenticated: false });
@@ -87,6 +96,8 @@ export function registerAuthRoutes(
     }
     res.json({ authenticated: true, user });
   });
+
+  if (!config.authEnabled) return;
 
   app.post("/api/auth/register", authRateLimit, async (req, res) => {
     const parsed = RegisterSchema.safeParse(req.body);

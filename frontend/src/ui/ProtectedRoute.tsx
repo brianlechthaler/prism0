@@ -10,6 +10,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="centeredMessage">Loading your session…</div>;
   }
 
+  if (!features.loginEnabled) {
+    return <>{children}</>;
+  }
+
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }

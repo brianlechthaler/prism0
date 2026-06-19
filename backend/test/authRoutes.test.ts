@@ -76,7 +76,27 @@ describe("authRoutes", () => {
     await withServer(app, async (port) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/features`);
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ emailEnabled: true });
+      expect(await res.json()).toEqual({ loginEnabled: true, emailEnabled: true });
+    });
+  });
+
+  it("disables auth routes when login is not enabled", async () => {
+    const { app } = createTestApp(new RunStore(), { ...testConfig, authEnabled: false });
+    await withServer(app, async (port) => {
+      const features = await fetch(`http://127.0.0.1:${port}/api/auth/features`);
+      expect(features.status).toBe(200);
+      expect(await features.json()).toEqual({ loginEnabled: false, emailEnabled: false });
+
+      const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ username: "tester", password: "password123" })
+      });
+      expect(login.status).toBe(404);
+
+      const me = await fetch(`http://127.0.0.1:${port}/api/auth/me`);
+      expect(me.status).toBe(200);
+      expect(await me.json()).toEqual({ authenticated: false });
     });
   });
 
