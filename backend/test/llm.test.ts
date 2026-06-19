@@ -135,6 +135,22 @@ describe("llm", () => {
     expect(onModelFallback).toHaveBeenCalledWith("fallback", "plain failure", "primary");
   });
 
+  it("normalizes upstream auth failures into actionable messages", async () => {
+    createMock.mockRejectedValue(new Error("403 status code (no body)"));
+
+    await expect(generateProjectFromIdea(config, "make app")).rejects.toThrow(
+      /Model provider rejected the request \(403\)/
+    );
+  });
+
+  it("preserves non-auth upstream status-code errors", async () => {
+    createMock.mockRejectedValue(new Error("500 status code (no body)"));
+
+    await expect(generateProjectFromIdea(config, "make app")).rejects.toThrow(
+      /500 status code \(no body\)/
+    );
+  });
+
   it("reports final stream usage with reasoning token details", async () => {
     async function* mockStream() {
       yield { choices: [{ delta: { content: "hello" } }] };

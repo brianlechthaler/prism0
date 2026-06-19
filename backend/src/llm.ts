@@ -95,7 +95,7 @@ export async function streamProjectCompletion(
   options: ModelRequestOptions = {}
 ): Promise<string> {
   const models = getModelCandidates(config, options.selectedModel);
-  let lastError: unknown = new Error("Model request failed");
+  let lastError: Error = new Error("Model request failed");
 
   for (const [index, model] of models.entries()) {
     throwIfAborted(options.signal);
@@ -110,10 +110,10 @@ export async function streamProjectCompletion(
         options.signal
       );
     } catch (error) {
-      lastError = error;
+      lastError = toNormalizedLlmError(error);
       const nextModel = models[index + 1];
       if (nextModel) {
-        handlers.onModelFallback?.(model, errorMessage(error), nextModel);
+        handlers.onModelFallback?.(model, errorMessage(lastError), nextModel);
       }
     }
   }
@@ -202,7 +202,27 @@ async function streamProjectCompletionWithModel(
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return normalizeLlmErrorMessage(error);
+}
+
+function toNormalizedLlmError(error: unknown): Error {
+  const message = normalizeLlmErrorMessage(error);
+  return error instanceof Error ? new Error(message, { cause: error }) : new Error(message);
+}
+
+function normalizeLlmErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const statusMatch = message.match(/\b(\d{3})\s+status code\b/i);
+  const statusCode = statusMatch?.[1];
+  if (!statusCode) {
+    return message;
+  }
+
+  if (statusCode === "401" || statusCode === "403") {
+    return `Model provider rejected the request (${statusCode}). Check OPENAI_API_KEY, OPENAI_BASE_URL, and model access permissions.`;
+  }
+
+  return message;
 }
 
 function extractUsage(chunk: unknown, kind: LlmCallKind): LlmCompletionUsage | undefined {
