@@ -1,0 +1,11 @@
+{
+    "schema_version": 1,
+    "commit": "6f1379602f834f55d43b71529275fcfed33cda96",
+    "indexed_at": "2026-06-19T06:47:16Z",
+    "project": "home-brian-Projects-prism0",
+    "nodes": 1130,
+    "edges": 3009,
+    "original_size": 3473408,
+    "compressed_size": 641190,
+    "compression_level": 9
+}

@@ -297,8 +297,14 @@ async function validateProjectWithRetries(
 export const YOLO_SKIP_VALIDATION_LOG =
   "YOLO mode: skipping validation harness (lint/tests). Results may be unsafe or broken.";
 
+export type GenerationLifecycleHooks = {
+  onComplete?: (runId: string, usage?: import("./types.js").RunUsageMetrics) => void;
+  onFail?: (runId: string, usage?: import("./types.js").RunUsageMetrics) => void;
+};
+
 export type GenerationOptions = {
   skipValidation?: boolean;
+  hooks?: GenerationLifecycleHooks;
 };
 
 async function maybeValidateProject(
@@ -386,7 +392,7 @@ export async function runGeneration(
         ? `[${timestamp()}] Skipping validation (YOLO mode). Publishing files to editor/preview.`
         : `[${timestamp()}] All checks passed. Publishing files to editor/preview.`
     );
-    store.complete(runId, project.files, project.summary);
+    finishRun(store, runId, project.files, project.summary, options, tracker);
   } catch (error) {
     if (handleControlError(store, runId, checkpoint, error)) return;
     const message = error instanceof Error ? error.message : String(error);
@@ -395,7 +401,7 @@ export async function runGeneration(
     if (files) {
       store.setFiles(runId, files);
     }
-    store.fail(runId, message);
+    failRun(store, runId, message, options, tracker);
   }
 }
 
@@ -574,13 +580,13 @@ export async function runFollowUp(
         ? `[${timestamp()}] Follow-up validation skipped (YOLO mode). Publishing updated files.`
         : `[${timestamp()}] Follow-up checks passed. Publishing updated files.`
     );
-    store.complete(runId, updatedProject.files, updatedProject.summary);
+    finishRun(store, runId, updatedProject.files, updatedProject.summary, options, tracker);
   } catch (error) {
     if (handleControlError(store, runId, checkpoint, error)) return;
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Follow-up failed: ${message}`);
     store.setFiles(runId, lastKnownFiles);
-    store.fail(runId, message);
+    failRun(store, runId, message, options, tracker);
   }
 }
 
@@ -688,7 +694,8 @@ export async function runRuntimeRepair(
   idea: string,
   project: GeneratedProject,
   runtimeError: string,
-  selectedModel?: string
+  selectedModel?: string,
+  options: GenerationOptions = {}
 ): Promise<void> {
   const checkpoint: RunCheckpoint = {
     kind: "runtime_repair",
@@ -722,13 +729,13 @@ export async function runRuntimeRepair(
     lastKnownFiles = repairedProject.files;
 
     store.appendLog(runId, `[${timestamp()}] Runtime repair checks passed. Publishing fixed files.`);
-    store.complete(runId, repairedProject.files, repairedProject.summary);
+    finishRun(store, runId, repairedProject.files, repairedProject.summary, options, tracker);
   } catch (error) {
     if (handleControlError(store, runId, checkpoint, error)) return;
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Runtime repair failed: ${message}`);
     store.setFiles(runId, lastKnownFiles);
-    store.fail(runId, message);
+    failRun(store, runId, message, options, tracker);
   }
 }
 
@@ -833,7 +840,8 @@ export async function runValidationRepair(
   idea: string,
   project: GeneratedProject,
   validationError: string,
-  selectedModel?: string
+  selectedModel?: string,
+  options: GenerationOptions = {}
 ): Promise<void> {
   const checkpoint: RunCheckpoint = {
     kind: "validation_repair",
@@ -870,13 +878,13 @@ export async function runValidationRepair(
       runId,
       `[${timestamp()}] Validation repair checks passed. Publishing fixed files.`
     );
-    store.complete(runId, repairedProject.files, repairedProject.summary);
+    finishRun(store, runId, repairedProject.files, repairedProject.summary, options, tracker);
   } catch (error) {
     if (handleControlError(store, runId, checkpoint, error)) return;
     const message = error instanceof Error ? error.message : String(error);
     store.appendLog(runId, `[${timestamp()}] Validation repair failed: ${message}`);
     store.setFiles(runId, lastKnownFiles);
-    store.fail(runId, message);
+    failRun(store, runId, message, options, tracker);
   }
 }
 
@@ -1066,7 +1074,7 @@ export async function resumeRun(
 
     lastKnownFiles = project.files;
     store.appendLog(runId, `[${timestamp()}] Resumed run completed successfully.`);
-    store.complete(runId, project.files, project.summary);
+    finishRun(store, runId, project.files, project.summary, {}, tracker);
   } catch (error) {
     if (handleControlError(store, runId, checkpoint, error)) return;
     const message = error instanceof Error ? error.message : String(error);
@@ -1074,8 +1082,31 @@ export async function resumeRun(
     if (lastKnownFiles) {
       store.setFiles(runId, lastKnownFiles);
     }
-    store.fail(runId, message);
+    failRun(store, runId, message, {}, tracker);
   }
+}
+
+function finishRun(
+  store: RunStore,
+  runId: string,
+  files: Record<string, string>,
+  summary: string | undefined,
+  options: GenerationOptions,
+  tracker: RunUsageTracker
+): void {
+  store.complete(runId, files, summary);
+  options.hooks?.onComplete?.(runId, store.get(runId)?.usage ?? tracker.snapshot());
+}
+
+function failRun(
+  store: RunStore,
+  runId: string,
+  message: string,
+  options: GenerationOptions,
+  tracker: RunUsageTracker
+): void {
+  store.fail(runId, message);
+  options.hooks?.onFail?.(runId, store.get(runId)?.usage ?? tracker.snapshot());
 }
 
 function withModelAttemptLogs(

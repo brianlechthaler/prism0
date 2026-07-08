@@ -1,7 +1,8 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { App } from "../src/ui/App";
+import { fireEvent, screen } from "@testing-library/react";
+import { GeneratorApp } from "../src/ui/GeneratorApp";
+import { renderWithRouter } from "./helpers";
 
 const { followUp, repair, repairValidation, start } = vi.hoisted(() => ({
   followUp: vi.fn(),
@@ -46,7 +47,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
   })
 }));
 
-describe("App ready state", () => {
+describe("GeneratorApp ready state", () => {
   beforeEach(() => {
     followUp.mockClear();
     repair.mockClear();
@@ -55,13 +56,13 @@ describe("App ready state", () => {
   });
 
   it("shows download link and editor preview", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByText(/download zip/i)).toBeInTheDocument();
     expect(await screen.findByTestId("editor-preview")).toBeInTheDocument();
   });
 
   it("submits ready-state prompts as follow-up changes by default", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     const prompt = screen.getByLabelText(/what should we add or change/i);
     fireEvent.change(prompt, { target: { value: "add a settings panel" } });
     fireEvent.click(screen.getByRole("button", { name: /update app/i }));
@@ -71,7 +72,7 @@ describe("App ready state", () => {
   });
 
   it("expands ready-state follow-up prompts with follow-up placeholder text", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.focus(screen.getByLabelText(/what should we add or change/i));
     const prompt = screen.getByLabelText(/what should we add or change/i);
     expect(prompt.tagName).toBe("TEXTAREA");
@@ -82,7 +83,7 @@ describe("App ready state", () => {
   });
 
   it("can use ready-state prompts to start a new app instead", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.click(screen.getByLabelText(/start a new app instead/i));
     const prompt = screen.getByLabelText(/what should we build/i);
     fireEvent.change(prompt, { target: { value: "make a drawing app" } });
@@ -93,7 +94,7 @@ describe("App ready state", () => {
   });
 
   it("can switch back to follow-up mode after choosing a new app", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     fireEvent.click(screen.getByLabelText(/start a new app instead/i));
     fireEvent.click(screen.getByLabelText(/update the current app/i));
     const prompt = screen.getByLabelText(/what should we add or change/i);
@@ -105,7 +106,7 @@ describe("App ready state", () => {
   });
 
   it("submits follow-up prompts when shift+enter is pressed", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     const prompt = screen.getByLabelText(/what should we add or change/i);
     fireEvent.change(prompt, { target: { value: "add a settings panel" } });
     fireEvent.keyDown(prompt, { key: "Enter", shiftKey: true });

@@ -4,20 +4,22 @@
 
 ### Product overview
 
-**prism0** is an npm workspaces monorepo (`backend`, `frontend`) that generates small frontend apps from text prompts. Dev runs two processes; production is a single Node process serving `frontend/dist` plus `/api` routes.
+**prism0** is an npm workspaces monorepo (`backend`, `frontend`) that generates small frontend apps from text prompts. Users register, verify email, and log in; the generator lives at `/app`. Published apps are served at `/h/:slug`. Dev runs two processes; production is a single Node process serving `frontend/dist`, `/api` routes, and hosted projects.
 
 ### Services
 
 | Service | Port | Required for |
 |---------|------|--------------|
 | Backend (Express) | 8787 | API, SSE generation stream, health check |
-| Frontend (Vite dev) | 5173 | Browser UI in development (proxies `/api` → backend) |
+| Frontend (Vite dev) | 5173 | Browser UI in development (proxies `/api` and `/h` → backend) |
 
-No database, Redis, or Docker is required for local development.
+SQLite (`DATABASE_PATH`, default `./data/prism0.db`) is created automatically on first backend start. No Redis or Docker is required for local development.
+
+Auth/hosting detail: `docs/auth-and-hosting.md`.
 
 ### Environment variables
 
-`OPENAI_API_KEY` is **required** to start the backend (use any non-empty string for UI-only smoke tests; real generation needs a valid key). See `.env.example` and `README.md` for optional `OPENAI_BASE_URL`, `OPENAI_MODEL`, etc.
+`OPENAI_API_KEY` is **required** to start the backend (use any non-empty string for UI-only smoke tests; real generation needs a valid key). See `.env.example` and `README.md` for optional `OPENAI_BASE_URL`, `OPENAI_MODEL`, `DATABASE_PATH`, `APP_BASE_URL`, etc. For local auth testing without reading server logs, `AUTH_EXPOSE_VERIFICATION_TOKEN=true` returns verification tokens in API responses.
 
 ### Common commands (repo root)
 
@@ -46,7 +48,8 @@ export OPENAI_API_KEY="your-key"
 npm run dev
 ```
 
-- Frontend: http://localhost:5173
+- Frontend: http://localhost:5173 (splash, login, register, dashboard)
+- Generator (after login): http://localhost:5173/app
 - Backend: http://localhost:8787
 
 For backend-only or frontend-only work: `npm run dev -w backend` or `npm run dev -w frontend`.

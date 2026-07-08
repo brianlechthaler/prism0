@@ -1,7 +1,8 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { App } from "../src/ui/App";
+import { screen } from "@testing-library/react";
+import { GeneratorApp } from "../src/ui/GeneratorApp";
+import { renderWithRouter } from "./helpers";
 
 vi.mock("../src/ui/EditorPreview", () => ({
   EditorPreview: () => <div data-testid="editor-preview">editor preview</div>
@@ -40,9 +41,9 @@ vi.mock("../src/hooks/useGeneration", async (importOriginal) => {
   };
 });
 
-describe("App YOLO mode", () => {
+describe("GeneratorApp YOLO mode", () => {
   it("shows a post-generation warning banner for YOLO runs", async () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(await screen.findByTestId("editor-preview")).toBeInTheDocument();
     expect(screen.getByText(/Generated without validation \(YOLO mode\)/i)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/The preview may crash/i);

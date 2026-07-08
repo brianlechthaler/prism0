@@ -1,7 +1,8 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { App } from "../src/ui/App";
+import { fireEvent, screen } from "@testing-library/react";
+import { GeneratorApp } from "../src/ui/GeneratorApp";
+import { renderWithRouter } from "./helpers";
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
@@ -58,7 +59,7 @@ vi.mock("../src/hooks/useGeneration", () => ({
   })
 }));
 
-describe("App generating state", () => {
+describe("GeneratorApp generating state", () => {
   beforeEach(() => {
     mocks.start.mockClear();
     mocks.stop.mockClear();
@@ -68,7 +69,7 @@ describe("App generating state", () => {
   });
 
   it("disables submit and shows progress label", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByRole("button", { name: /generating/i })).toBeDisabled();
     expect(screen.getByText("working")).toBeInTheDocument();
     expect(screen.getByText("20.0 tok/s")).toBeInTheDocument();
@@ -76,14 +77,14 @@ describe("App generating state", () => {
   });
 
   it("does not submit when shift+enter is pressed while generating", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     const ideaField = screen.getByLabelText(/what should we build/i);
     fireEvent.keyDown(ideaField, { key: "Enter", shiftKey: true });
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
   it("shows generation control buttons", () => {
-    render(<App />);
+    renderWithRouter(<GeneratorApp />);
     expect(screen.getByRole("button", { name: /stop/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^pause$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /restart/i })).toBeInTheDocument();

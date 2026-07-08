@@ -53,4 +53,16 @@ describe("parseCliArgs", () => {
       yoloModeEnabled: false
     });
   });
+
+  it("enables login when requested", () => {
+    expect(parseCliArgs(["--enable-login"])).toEqual({
+      authEnabled: true
+    });
+  });
+
+  it("allows login to be explicitly disabled", () => {
+    expect(parseCliArgs(["--enable-login", "--disable-login"])).toEqual({
+      authEnabled: false
+    });
+  });
 });
