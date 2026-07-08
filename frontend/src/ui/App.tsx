@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AuthProvider } from "../hooks/useAuth";
 import { DashboardPage } from "./DashboardPage";
+import { ExperimentalBanner } from "./ExperimentalBanner";
 import { GeneratorApp } from "./GeneratorApp";
 import { LoginPage } from "./LoginPage";
 import { ProjectManagePage } from "./ProjectManagePage";
@@ -22,6 +23,9 @@ export function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <div className="topBar">
+          <ExperimentalBanner />
+        </div>
         <Routes>
           <Route path="/" element={<SplashPage />} />
           <Route path="/login" element={<LoginPage />} />

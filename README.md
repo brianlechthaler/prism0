@@ -2,6 +2,10 @@
 
 Type an idea (e.g. “make a tetris game”) and `prism0` generates a small browser app with live progress, validation, editing, and export.
 
+## Experimental status
+
+**prism0 is experimental software.** It is under active development: features may change, break, or produce unreliable output. Generated apps are not reviewed for safety or correctness — treat them as untrusted code and use at your own risk. The web UI shows a persistent banner with this notice.
+
 ## Features
 
 ### Generation and validation
