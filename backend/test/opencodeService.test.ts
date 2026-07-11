@@ -12,12 +12,15 @@ import {
   abortOpencodeSession,
   buildOpencodeConfig,
   ensureOpencodeOnPath,
+  findAvailablePort,
   getModelCandidates,
   parseOpencodeModel,
+  resolveListenPort,
   resolveOpencodeBinDir,
   runOpencodePrompt,
   runOpencodeShell,
-  shutdownOpencode
+  shutdownOpencode,
+  startOpencodeServer
 } from "../src/opencodeService.js";
 
 const config = {
@@ -146,6 +149,38 @@ describe("opencodeService", () => {
 
     abortOpencodeSession(client, "ses_test");
     expect(client.session.abort).toHaveBeenCalledWith({ path: { id: "ses_test" } });
+  });
+
+  it("finds an available localhost port", async () => {
+    const port = await findAvailablePort();
+    expect(port).toBeGreaterThan(0);
+  });
+
+  it("rejects invalid listen addresses", () => {
+    expect(() => resolveListenPort(null)).toThrow(/Failed to resolve an OpenCode server port/);
+    expect(() => resolveListenPort("/tmp/socket.sock")).toThrow(/Failed to resolve an OpenCode server port/);
+    expect(resolveListenPort({ address: "127.0.0.1", family: "IPv4", port: 4321 })).toBe(4321);
+  });
+
+  it("retries OpenCode startup when the first port is busy", async () => {
+    createOpencodeServer
+      .mockRejectedValueOnce(new Error("port busy"))
+      .mockResolvedValueOnce({ url: "http://127.0.0.1:4108", close: vi.fn() });
+
+    const server = await startOpencodeServer(config);
+    expect(server.url).toBe("http://127.0.0.1:4108");
+    expect(createOpencodeServer).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws after exhausting OpenCode startup retries", async () => {
+    createOpencodeServer.mockRejectedValue(new Error("startup failed"));
+    await expect(startOpencodeServer(config)).rejects.toThrow(/startup failed/);
+    expect(createOpencodeServer).toHaveBeenCalledTimes(8);
+  });
+
+  it("normalizes non-error startup failures", async () => {
+    createOpencodeServer.mockRejectedValue("plain startup failure");
+    await expect(startOpencodeServer(config)).rejects.toThrow(/plain startup failure/);
   });
 
   it("prepends the OpenCode binary directory to PATH", () => {
@@ -647,6 +682,7 @@ describe("opencodeService", () => {
     const originalPath = process.env.PATH;
     await shutdownOpencode();
     delete process.env.PATH;
+    delete process.env.Path;
     const handle = (await import("../src/opencodeService.js")).createOpencodeClientHandle(config);
     await handle.getClient();
     if (originalPath === undefined) {

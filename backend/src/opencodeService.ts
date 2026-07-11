@@ -3,6 +3,7 @@ import { createOpencodeServer } from "@opencode-ai/sdk/server";
 import type { Config } from "@opencode-ai/sdk";
 import type { AssistantMessage, Part, ToolState } from "@opencode-ai/sdk/client";
 import { existsSync } from "node:fs";
+import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AppConfig } from "./config.js";
@@ -128,6 +129,59 @@ export function getModelCandidates(config: AppConfig, selectedModel?: string): s
   return [preferredModel, ...config.openaiModels.filter((model) => model !== preferredModel)];
 }
 
+const OPENCODE_HOST = "127.0.0.1";
+const OPENCODE_PORT_ATTEMPTS = 8;
+
+export function resolveListenPort(
+  address: ReturnType<ReturnType<typeof createServer>["address"]>
+): number {
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to resolve an OpenCode server port");
+  }
+  return address.port;
+}
+
+export async function findAvailablePort(host = OPENCODE_HOST): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      try {
+        const port = resolveListenPort(server.address());
+        server.close(() => resolve(port));
+      } catch (error) {
+        server.close();
+        reject(error);
+      }
+    });
+  });
+}
+
+export async function startOpencodeServer(
+  config: AppConfig,
+  options: { hostname?: string; timeout?: number } = {}
+): Promise<OpencodeServerHandle> {
+  const hostname = options.hostname ?? OPENCODE_HOST;
+  const timeout = options.timeout ?? 30_000;
+  let lastError: Error = new Error("Failed to start OpenCode server");
+
+  for (let attempt = 0; attempt < OPENCODE_PORT_ATTEMPTS; attempt++) {
+    const port = await findAvailablePort(hostname);
+    try {
+      return await createOpencodeServer({
+        hostname,
+        port,
+        timeout,
+        config: buildOpencodeConfig(config)
+      });
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw lastError;
+}
+
 export async function getOpencodeClient(config: AppConfig): Promise<OpencodeClient> {
   const cacheKey = configCacheKey(config);
   if (activeClient && activeServer && activeConfigKey === cacheKey) {
@@ -137,14 +191,12 @@ export async function getOpencodeClient(config: AppConfig): Promise<OpencodeClie
   await shutdownOpencode();
 
   const previousPath = process.env.PATH;
-  ensureOpencodeOnPath();
+  const env = ensureOpencodeOnPath(process.env);
+  if (env.PATH) {
+    process.env.PATH = env.PATH;
+  }
   try {
-    activeServer = await createOpencodeServer({
-      hostname: "127.0.0.1",
-      port: 4096,
-      timeout: 30_000,
-      config: buildOpencodeConfig(config)
-    });
+    activeServer = await startOpencodeServer(config);
     activeClient = createOpencodeClient({ baseUrl: activeServer.url });
     activeConfigKey = cacheKey;
     return activeClient;
