@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { createOpencodeServer, createOpencodeClient } = vi.hoisted(() => ({
+const { createOpencodeServer, createOpencodeClient, createServerMock } = vi.hoisted(() => ({
   createOpencodeServer: vi.fn(),
-  createOpencodeClient: vi.fn()
+  createOpencodeClient: vi.fn(),
+  createServerMock: vi.fn()
 }));
 
 vi.mock("@opencode-ai/sdk/server", () => ({ createOpencodeServer }));
 vi.mock("@opencode-ai/sdk/client", () => ({ createOpencodeClient }));
+vi.mock("node:net", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:net")>();
+  createServerMock.mockImplementation(actual.createServer);
+  return {
+    ...actual,
+    createServer: createServerMock
+  };
+});
 
 import {
   abortOpencodeSession,
@@ -160,6 +169,21 @@ describe("opencodeService", () => {
     expect(() => resolveListenPort(null)).toThrow(/Failed to resolve an OpenCode server port/);
     expect(() => resolveListenPort("/tmp/socket.sock")).toThrow(/Failed to resolve an OpenCode server port/);
     expect(resolveListenPort({ address: "127.0.0.1", family: "IPv4", port: 4321 })).toBe(4321);
+  });
+
+  it("rejects when an ephemeral port cannot be resolved after bind", async () => {
+    const close = vi.fn((callback?: () => void) => callback?.());
+    const fakeServer = {
+      once: vi.fn(),
+      listen: vi.fn((_port: number, _host: string, callback?: () => void) => callback?.()),
+      close,
+      address: () => null
+    };
+
+    createServerMock.mockReturnValueOnce(fakeServer as ReturnType<typeof import("node:net").createServer>);
+
+    await expect(findAvailablePort()).rejects.toThrow(/Failed to resolve an OpenCode server port/);
+    expect(close).toHaveBeenCalled();
   });
 
   it("retries OpenCode startup when the first port is busy", async () => {
@@ -626,6 +650,35 @@ describe("opencodeService", () => {
     const stopPending = runOpencodePrompt(config, "make app", "generate", {}, { signal: stopController.signal });
     setTimeout(() => stopController.abort("stop"), 10);
     await expect(stopPending).rejects.toThrow(/stopped by user/);
+  });
+
+  it("skips PATH assignment on Windows when only Path is configured", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const { client } = createMockClient();
+    createOpencodeServer.mockResolvedValue({ url: "http://127.0.0.1:4096", close: vi.fn() });
+    createOpencodeClient.mockReturnValue(client);
+
+    const originalPath = process.env.PATH;
+    const originalPathWin = process.env.Path;
+    delete process.env.PATH;
+    process.env.Path = `${resolveOpencodeBinDir()};C:\\bin`;
+
+    const handle = (await import("../src/opencodeService.js")).createOpencodeClientHandle(config);
+    await handle.getClient();
+
+    expect(process.env.PATH).toBeUndefined();
+
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+    if (originalPathWin === undefined) {
+      delete process.env.Path;
+    } else {
+      process.env.Path = originalPathWin;
+    }
+    platform.mockRestore();
   });
 
   it("covers shell edge cases, cleanup failures, and client bootstrap paths", async () => {
