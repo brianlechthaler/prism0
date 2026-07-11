@@ -1,34 +1,34 @@
-import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   copyHarnessConfigs,
   createValidationEnv,
   resolveExecuteCommand,
   resolveValidationOrchestration,
-  runCommand,
+  runOpencodeValidationCommand,
   validateGeneratedProject,
   type ValidationDeps
 } from "../src/validateProject.js";
 
-function mockChild(exitCode: number, stdout = "", stderr = "") {
-  const child = new EventEmitter() as EventEmitter & {
-    stdout: EventEmitter;
-    stderr: EventEmitter;
-  };
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
-
-  queueMicrotask(() => {
-    if (stdout) child.stdout.emit("data", Buffer.from(stdout));
-    if (stderr) child.stderr.emit("data", Buffer.from(stderr));
-    child.emit("close", exitCode);
-  });
-
-  return child;
-}
+const config = {
+  openaiApiKey: "k",
+  openaiBaseUrl: "https://example.com/v1",
+  openaiModel: "m",
+  openaiModels: ["m"],
+  modelPickerEnabled: false,
+  yoloModeEnabled: false,
+  host: "127.0.0.1",
+  port: 8787,
+  requestTimeoutMs: 120_000,
+  contextWindowTokens: 128_000,
+  contextCompressThreshold: 0.9,
+  maxRuns: 100,
+  maxActiveRuns: 5,
+  generationRateLimitWindowMs: 60_000,
+  generationRateLimitMax: 10,
+  trustProxy: false
+};
 
 function createDeps(overrides: Partial<ValidationDeps> = {}): ValidationDeps {
-  const spawn = vi.fn();
   return {
     fs: {
       rm: vi.fn().mockResolvedValue(undefined),
@@ -38,8 +38,8 @@ function createDeps(overrides: Partial<ValidationDeps> = {}): ValidationDeps {
       access: vi.fn().mockResolvedValue(undefined),
       symlink: vi.fn().mockResolvedValue(undefined)
     },
-    spawn,
     harnessRoot: "/harness",
+    config,
     ...overrides
   };
 }
@@ -67,28 +67,34 @@ describe("validateGeneratedProject", () => {
     });
 
     const logs: string[] = [];
-    const result = await validateGeneratedProject("run-1", files, (line) => logs.push(line), deps);
+    const result = await validateGeneratedProject(
+      "run-1",
+      files,
+      (line) => logs.push(line),
+      deps,
+      undefined,
+      config
+    );
 
     expect(deps.fs.writeFile).toHaveBeenCalledTimes(5);
     expect(deps.copyConfigs).toHaveBeenCalled();
     expect(deps.execute).toHaveBeenCalledWith(
-      process.execPath,
-      ["/harness/runs/run-1/node_modules/eslint/bin/eslint.js", "."],
+      `${process.execPath} node_modules/eslint/bin/eslint.js .`,
       "/harness/runs/run-1",
       expect.any(Function),
-      deps.spawn,
+      config,
       undefined
     );
     expect(deps.execute).toHaveBeenCalledWith(
-      process.execPath,
-      ["/harness/runs/run-1/node_modules/vitest/vitest.mjs", "run"],
+      `${process.execPath} node_modules/vitest/vitest.mjs run`,
       "/harness/runs/run-1",
       expect.any(Function),
-      deps.spawn,
+      config,
       undefined
     );
     expect(result).toEqual({ lintOutput: "lint ok", testOutput: "tests ok" });
     expect(logs.some((l) => l.includes("Validation finished successfully"))).toBe(true);
+    expect(logs.some((l) => l.includes("via OpenCode"))).toBe(true);
   });
 
   it("prefixes eslint and vitest command output in logs", async () => {
@@ -96,21 +102,21 @@ describe("validateGeneratedProject", () => {
       copyConfigs: vi.fn().mockResolvedValue(undefined),
       execute: vi
         .fn()
-        .mockImplementationOnce(async (_cmd, _args, _cwd, onLog) => {
-          onLog("[stdout] lint passed");
+        .mockImplementationOnce(async (_cmd, _cwd, onLog) => {
+          onLog("lint passed");
           return "lint ok";
         })
-        .mockImplementationOnce(async (_cmd, _args, _cwd, onLog) => {
-          onLog("[stdout] tests passed");
+        .mockImplementationOnce(async (_cmd, _cwd, onLog) => {
+          onLog("tests passed");
           return "tests ok";
         })
     });
 
     const logs: string[] = [];
-    await validateGeneratedProject("run-1", files, (line) => logs.push(line), deps);
+    await validateGeneratedProject("run-1", files, (line) => logs.push(line), deps, undefined, config);
 
-    expect(logs.some((l) => l.includes("[eslint] [stdout] lint passed"))).toBe(true);
-    expect(logs.some((l) => l.includes("[vitest] [stdout] tests passed"))).toBe(true);
+    expect(logs.some((l) => l.includes("[eslint] lint passed"))).toBe(true);
+    expect(logs.some((l) => l.includes("[vitest] tests passed"))).toBe(true);
   });
 
   it("rejects unsafe generated filenames before writing files", async () => {
@@ -120,7 +126,7 @@ describe("validateGeneratedProject", () => {
     });
 
     await expect(
-      validateGeneratedProject("run-1", { "../escape.js": "x" }, () => {}, deps)
+      validateGeneratedProject("run-1", { "../escape.js": "x" }, () => {}, deps, undefined, config)
     ).rejects.toThrow(/unsafe/);
     expect(deps.fs.writeFile).not.toHaveBeenCalled();
   });
@@ -130,14 +136,21 @@ describe("validateGeneratedProject", () => {
       copyConfigs: vi.fn().mockResolvedValue(undefined),
       execute: vi
         .fn()
-        .mockRejectedValueOnce(new Error("Command failed (eslint), exit 1:\nunused var"))
+        .mockRejectedValueOnce(new Error("Command failed (eslint), exit non-zero:\nunused var"))
         .mockRejectedValueOnce("assertion failed")
     });
 
-    await expect(validateGeneratedProject("run-1", files, () => {}, deps)).rejects.toThrow(
-      /ESLint failed:[\s\S]*Vitest failed:[\s\S]*assertion failed/
-    );
+    await expect(
+      validateGeneratedProject("run-1", files, () => {}, deps, undefined, config)
+    ).rejects.toThrow(/ESLint failed:[\s\S]*Vitest failed:[\s\S]*assertion failed/);
     expect(deps.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires AppConfig when config is not injected through deps", async () => {
+    const deps = createDeps({ config: undefined });
+    await expect(
+      validateGeneratedProject("run-1", files, () => {}, deps)
+    ).rejects.toThrow(/AppConfig is required/);
   });
 });
 
@@ -146,7 +159,7 @@ describe("resolveValidationOrchestration", () => {
     const deps = createDeps();
     const resolved = resolveValidationOrchestration(deps);
     expect(resolved.copyConfigs).toBe(copyHarnessConfigs);
-    expect(resolved.execute).toBe(runCommand);
+    expect(resolved.execute).toBe(runOpencodeValidationCommand);
   });
 });
 
@@ -185,11 +198,10 @@ describe("copyHarnessConfigs", () => {
 
     await copyHarnessConfigs("/harness/runs/r", () => {}, deps);
     expect(deps.execute).toHaveBeenCalledWith(
-      "npm",
-      ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+      "npm ci --ignore-scripts --no-audit --no-fund",
       "/harness",
       expect.any(Function),
-      deps.spawn
+      config
     );
     expect(deps.fs.symlink).toHaveBeenCalledWith(
       "/harness/node_modules",
@@ -237,169 +249,70 @@ describe("copyHarnessConfigs", () => {
     await expect(copyHarnessConfigs("/harness/runs/r", () => {}, deps)).rejects.toBe("install failed");
     expect(deps.execute).toHaveBeenCalledTimes(3);
   });
+
+  it("requires AppConfig when installing missing harness dependencies", async () => {
+    const deps = createDeps({
+      config: undefined,
+      fs: {
+        rm: vi.fn().mockResolvedValue(undefined),
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        writeFile: vi.fn().mockResolvedValue(undefined),
+        copyFile: vi.fn().mockResolvedValue(undefined),
+        access: vi.fn().mockRejectedValue(new Error("missing")),
+        symlink: vi.fn().mockResolvedValue(undefined)
+      }
+    });
+
+    await expect(copyHarnessConfigs("/harness/runs/r", () => {}, deps)).rejects.toThrow(
+      /AppConfig is required to install validation harness dependencies/
+    );
+  });
 });
 
-describe("runCommand", () => {
+describe("runOpencodeValidationCommand", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("rejects immediately when the signal is already aborted", async () => {
-    const controller = new AbortController();
-    controller.abort("stop");
-    const spawn = vi.fn();
+  it("delegates to runOpencodeShell and wraps failures", async () => {
+    const shell = vi.spyOn(await import("../src/opencodeService.js"), "runOpencodeShell");
+    shell.mockResolvedValue("ok");
 
-    await expect(
-      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
-    ).rejects.toThrow(/stopped by user/);
-    expect(spawn).not.toHaveBeenCalled();
+    const output = await runOpencodeValidationCommand("echo hi", "/tmp", () => {}, config);
+    expect(output).toBe("ok");
+    expect(shell).toHaveBeenCalledWith(config, "echo hi", "/tmp", expect.any(Function), undefined);
   });
 
-  it("rejects when the signal aborts during spawn", async () => {
-    const controller = new AbortController();
-    const spawn = vi.fn().mockImplementation(() => {
-      const child = mockChild(0, "ok") as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-        kill: ReturnType<typeof vi.fn>;
-      };
-      child.kill = vi.fn();
-      controller.abort("stop");
-      return child;
-    });
+  it("rethrows pause and stop errors unchanged", async () => {
+    const { RunPausedError, RunStoppedError } = await import("../src/runControl.js");
+    const shell = vi.spyOn(await import("../src/opencodeService.js"), "runOpencodeShell");
+    shell.mockRejectedValueOnce(new RunPausedError());
+    shell.mockRejectedValueOnce(new RunStoppedError());
 
-    await expect(
-      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
-    ).rejects.toThrow(/stopped by user/);
-  });
-
-  it("aborts running validation commands when the signal is triggered", async () => {
-    const controller = new AbortController();
-    const spawn = vi.fn().mockImplementation(() => {
-      const child = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-        kill: ReturnType<typeof vi.fn>;
-      };
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      child.kill = vi.fn();
-      queueMicrotask(() => controller.abort("stop"));
-      return child;
-    });
-
-    await expect(
-      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
-    ).rejects.toThrow(/stopped by user/);
-  });
-
-  it("aborts validation with a pause error", async () => {
-    const controller = new AbortController();
-    const spawn = vi.fn().mockImplementation(() => {
-      const child = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-        kill: ReturnType<typeof vi.fn>;
-      };
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      child.kill = vi.fn();
-      queueMicrotask(() => controller.abort("pause"));
-      return child;
-    });
-
-    await expect(
-      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
-    ).rejects.toThrow(/paused by user/);
-  });
-
-  it("handles processes without stdout/stderr streams", async () => {
-    const spawn = vi.fn().mockImplementation(() => {
-      const child = new EventEmitter();
-      queueMicrotask(() => child.emit("close", 0));
-      return child;
-    });
-
-    await expect(runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn)).resolves.toBe("");
-  });
-
-  it("returns stdout/stderr on success", async () => {
-    const spawn = vi.fn().mockReturnValue(mockChild(0, "ok", "warn"));
-    const lines: string[] = [];
-    const output = await runCommand("npm", ["run", "lint"], "/tmp", (line) => lines.push(line), spawn);
-    expect(output).toContain("ok");
-    expect(output).toContain("warn");
-    expect(lines.some((l) => l.includes("[stdout]"))).toBe(true);
-    expect(lines.some((l) => l.includes("[stderr]"))).toBe(true);
-  });
-
-  it("throws when command exits non-zero", async () => {
-    const spawn = vi.fn().mockReturnValue(mockChild(1, "", "lint failed"));
-    await expect(runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn)).rejects.toThrow(
-      /lint failed/
+    await expect(runOpencodeValidationCommand("echo hi", "/tmp", () => {}, config)).rejects.toBeInstanceOf(
+      RunPausedError
+    );
+    await expect(runOpencodeValidationCommand("echo hi", "/tmp", () => {}, config)).rejects.toBeInstanceOf(
+      RunStoppedError
     );
   });
 
-  it("enables shell mode on windows", async () => {
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    const spawn = vi.fn().mockReturnValue(mockChild(0, "ok"));
-    await runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn);
-    expect(spawn.mock.calls[0]?.[2]).toMatchObject({ shell: true, cwd: "/tmp" });
-    expect(spawn.mock.calls[0]?.[2]?.env).not.toHaveProperty("OPENAI_API_KEY");
-    platform.mockRestore();
-  });
+  it("wraps generic shell failures with command context", async () => {
+    const shell = vi.spyOn(await import("../src/opencodeService.js"), "runOpencodeShell");
+    shell.mockRejectedValue(new Error("boom"));
 
-  it("cleans up abort listeners after successful and failing commands", async () => {
-    const controller = new AbortController();
-    const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
-    const spawn = vi.fn().mockReturnValue(mockChild(0, "ok"));
-
-    await runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal);
-    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
-
-    removeSpy.mockClear();
-    const failingSpawn = vi.fn().mockReturnValue(mockChild(1, "", "lint failed"));
-    await expect(
-      runCommand("npm", ["run", "lint"], "/tmp", () => {}, failingSpawn, controller.signal)
-    ).rejects.toThrow(/lint failed/);
-    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
-  });
-
-  it("rejects when spawn fails to start", async () => {
-    const spawn = vi.fn().mockImplementation(() => {
-      const child = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-      };
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      queueMicrotask(() => child.emit("error", new Error("spawn failed")));
-      return child;
-    });
-
-    await expect(runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn)).rejects.toThrow(
-      /spawn failed/
+    await expect(runOpencodeValidationCommand("echo hi", "/tmp", () => {}, config)).rejects.toThrow(
+      /Command failed \(echo hi\)/
     );
   });
 
-  it("removes abort listeners when spawn fails after attaching a signal", async () => {
-    const controller = new AbortController();
-    const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
-    const spawn = vi.fn().mockImplementation(() => {
-      const child = new EventEmitter() as EventEmitter & {
-        stdout: EventEmitter;
-        stderr: EventEmitter;
-      };
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      queueMicrotask(() => child.emit("error", new Error("spawn failed")));
-      return child;
-    });
+  it("wraps non-error shell failures with command context", async () => {
+    const shell = vi.spyOn(await import("../src/opencodeService.js"), "runOpencodeShell");
+    shell.mockRejectedValue("plain failure");
 
-    await expect(
-      runCommand("npm", ["run", "lint"], "/tmp", () => {}, spawn, controller.signal)
-    ).rejects.toThrow(/spawn failed/);
-    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    await expect(runOpencodeValidationCommand("echo hi", "/tmp", () => {}, config)).rejects.toThrow(
+      /plain failure/
+    );
   });
 });
 

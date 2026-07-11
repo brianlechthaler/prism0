@@ -14,13 +14,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@opencode-ai/sdk": "^1.17.18",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^5.2.1",
-    "openai": "^6.44.0",
+    "opencode-ai": "^1.17.18",
     "zod": "^4.4.3"
   },
   "devDependencies": {

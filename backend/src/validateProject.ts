@@ -1,8 +1,9 @@
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AppConfig } from "./config.js";
 import { normalizeProjectFiles, resolveProjectFilePath } from "./fileSafety.js";
+import { runOpencodeShell } from "./opencodeService.js";
 import { RunPausedError, RunStoppedError, throwIfAborted } from "./runControl.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,22 +19,20 @@ export type ValidationResult = {
 
 export type ValidationDeps = {
   fs: Pick<typeof fs, "rm" | "mkdir" | "writeFile" | "copyFile" | "access" | "symlink">;
-  spawn: typeof nodeSpawn;
   harnessRoot: string;
+  config?: AppConfig;
   copyConfigs?: (runDir: string, onLog: (line: string) => void, deps: ValidationDeps) => Promise<void>;
   execute?: (
     command: string,
-    args: string[],
     cwd: string,
     onLog: (line: string) => void,
-    spawnImpl?: ValidationDeps["spawn"],
+    config: AppConfig,
     signal?: AbortSignal
   ) => Promise<string>;
 };
 
 const defaultDeps: ValidationDeps = {
   fs,
-  spawn: nodeSpawn,
   harnessRoot: HARNESS_ROOT
 };
 
@@ -45,7 +44,7 @@ export function resolveValidationOrchestration(deps: ValidationDeps) {
 }
 
 export function resolveExecuteCommand(deps: ValidationDeps) {
-  return deps.execute ?? runCommand;
+  return deps.execute ?? runOpencodeValidationCommand;
 }
 
 export async function validateGeneratedProject(
@@ -53,8 +52,14 @@ export async function validateGeneratedProject(
   files: Record<string, string>,
   onLog: (line: string) => void,
   deps: ValidationDeps = defaultDeps,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  config?: AppConfig
 ): Promise<ValidationResult> {
+  const appConfig = config ?? deps.config;
+  if (!appConfig) {
+    throw new Error("AppConfig is required for OpenCode validation");
+  }
+
   const { copyConfigs, execute } = resolveValidationOrchestration(deps);
   const runDir = path.join(deps.harnessRoot, "runs", runId);
   await deps.fs.rm(runDir, { recursive: true, force: true });
@@ -71,32 +76,26 @@ export async function validateGeneratedProject(
 
   await copyConfigs(runDir, onLog, deps);
 
-  onLog("Running ESLint on generated sources…");
+  onLog("Running ESLint on generated sources via OpenCode…");
   let lintOutput = "";
   let testOutput = "";
   const failures: string[] = [];
 
+  const eslintCommand = `${process.execPath} node_modules/eslint/bin/eslint.js .`;
   try {
-    lintOutput = await execute(
-      process.execPath,
-      [path.join(runDir, "node_modules/eslint/bin/eslint.js"), "."],
-      runDir,
-      (line) => onLog(`[eslint] ${line}`),
-      deps.spawn,
-      signal
-    );
+    lintOutput = await execute(eslintCommand, runDir, (line) => onLog(`[eslint] ${line}`), appConfig, signal);
   } catch (error) {
     failures.push(formatCommandFailure("ESLint", error));
   }
 
-  onLog("Running Vitest test suite for generated app…");
+  onLog("Running Vitest test suite for generated app via OpenCode…");
+  const vitestCommand = `${process.execPath} node_modules/vitest/vitest.mjs run`;
   try {
     testOutput = await execute(
-      process.execPath,
-      [path.join(runDir, "node_modules/vitest/vitest.mjs"), "run"],
+      vitestCommand,
       runDir,
       (line) => onLog(`[vitest] ${line}`),
-      deps.spawn,
+      appConfig,
       signal
     );
   } catch (error) {
@@ -131,15 +130,18 @@ export async function copyHarnessConfigs(
   } catch {
     onLog("Harness node_modules missing; installing tooling dependencies…");
     const execute = resolveExecuteCommand(deps);
+    const installConfig = deps.config;
+    if (!installConfig) {
+      throw new Error("AppConfig is required to install validation harness dependencies");
+    }
     let lastInstallError: unknown;
     for (let attempt = 1; attempt <= MAX_HARNESS_INSTALL_ATTEMPTS; attempt++) {
       try {
         await execute(
-          "npm",
-          ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+          "npm ci --ignore-scripts --no-audit --no-fund",
           deps.harnessRoot,
           onLog,
-          deps.spawn
+          installConfig
         );
         break;
       } catch (error) {
@@ -158,68 +160,22 @@ export async function copyHarnessConfigs(
   onLog("Linked validation harness node_modules");
 }
 
-export function runCommand(
+export async function runOpencodeValidationCommand(
   command: string,
-  args: string[],
   cwd: string,
   onLog: (line: string) => void,
-  spawnImpl: ValidationDeps["spawn"] = nodeSpawn,
+  config: AppConfig,
   signal?: AbortSignal
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    throwIfAborted(signal);
-    const child = spawnImpl(command, args, {
-      cwd,
-      env: createValidationEnv(process.env),
-      shell: process.platform === "win32"
-    }) as ChildProcess;
-
-    const onAbort = () => {
-      child.kill("SIGTERM");
-      reject(signal?.reason === "pause" ? new RunPausedError() : new RunStoppedError());
-    };
-
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await runOpencodeShell(config, command, cwd, onLog, signal);
+  } catch (error) {
+    if (error instanceof RunPausedError || error instanceof RunStoppedError) {
+      throw error;
     }
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdout += text;
-      for (const line of text.split(/\r?\n/).filter(Boolean)) {
-        onLog(`[stdout] ${line}`);
-      }
-    });
-
-    child.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderr += text;
-      for (const line of text.split(/\r?\n/).filter(Boolean)) {
-        onLog(`[stderr] ${line}`);
-      }
-    });
-
-    child.on("error", (error) => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-      const combined = `${stdout}\n${stderr}`.trim();
-      if (code === 0) {
-        resolve(combined);
-        return;
-      }
-      reject(new Error(`Command failed (${command} ${args.join(" ")}), exit ${code}:\n${combined}`));
-    });
-  });
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Command failed (${command}), exit non-zero:\n${message}`);
+  }
 }
 
 function formatCommandFailure(label: string, error: unknown): string {

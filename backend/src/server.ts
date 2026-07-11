@@ -14,6 +14,7 @@ import { registerHostingRoutes } from "./hosting.js";
 import { parseCliArgs } from "./parseArgs.js";
 import { ProjectStore } from "./projectStore.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
+import { shutdownOpencode } from "./opencodeService.js";
 import { registerRoutes } from "./routes.js";
 import { RunStore } from "./runStore.js";
 
@@ -124,8 +125,9 @@ function shutdown(server: Server, signal: NodeJS.Signals): void {
   }, 10_000);
   forceExit.unref();
 
-  server.close((error) => {
+  server.close(async (error) => {
     clearTimeout(forceExit);
+    await shutdownOpencode().catch(() => undefined);
     if (error) {
       console.error(error);
       process.exit(1);

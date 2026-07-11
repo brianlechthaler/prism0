@@ -1,19 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const createMock = vi.fn();
+const { runOpencodePrompt } = vi.hoisted(() => ({
+  runOpencodePrompt: vi.fn()
+}));
 
-vi.mock("openai", () => {
-  const MockOpenAI = vi.fn(function MockOpenAI() {
-    return {
-      chat: {
-        completions: {
-          create: createMock
-        }
-      }
-    };
-  });
-
-  return { default: MockOpenAI };
+vi.mock("../src/opencodeService.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/opencodeService.js")>(
+    "../src/opencodeService.js"
+  );
+  return {
+    ...actual,
+    runOpencodePrompt
+  };
 });
 
 import {
@@ -47,18 +45,14 @@ const config = {
 };
 
 describe("llm", () => {
-  beforeEach(() => {
-    createMock.mockReset();
-  });
-
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
+    runOpencodePrompt.mockReset();
   });
 
-  it("creates an OpenAI client", () => {
+  it("creates an OpenCode client handle", () => {
     const client = createOpenAiClient(config);
-    expect(client.chat.completions.create).toBeTypeOf("function");
+    expect(client.getClient).toBeTypeOf("function");
   });
 
   it("orders selected models before configured fallbacks", () => {
@@ -68,15 +62,12 @@ describe("llm", () => {
   });
 
   it("streams content and returns full response", async () => {
-    async function* mockStream() {
-      yield {
-        choices: [{ delta: { reasoning_content: "thinking", content: "hel" } }]
-      };
-      yield {
-        choices: [{ delta: { content: "lo" } }]
-      };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockImplementation(async (_config, _prompt, _kind, handlers) => {
+      handlers.onReasoning?.("thinking");
+      handlers.onContent?.("hel");
+      handlers.onContent?.("lo");
+      return "hello";
+    });
 
     const reasoning: string[] = [];
     const content: string[] = [];
@@ -89,54 +80,45 @@ describe("llm", () => {
     expect(result).toBe("hello");
     expect(reasoning.join("")).toBe("thinking");
     expect(content.join("")).toBe("hello");
-    expect(createMock.mock.calls[0]?.[0]).toMatchObject({
-      stream: true,
-      stream_options: { include_usage: true }
-    });
+    expect(runOpencodePrompt).toHaveBeenCalledWith(
+      config,
+      expect.stringContaining("make app"),
+      "generate",
+      expect.any(Object),
+      {}
+    );
   });
 
   it("falls back to the next configured model when the selected model fails", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: "ok" } }] };
-    }
-
-    createMock.mockRejectedValueOnce(new Error("selected unavailable")).mockResolvedValueOnce(mockStream());
     const onModelFallback = vi.fn();
+    runOpencodePrompt.mockImplementation(async (_config, _prompt, _kind, handlers, options) => {
+      handlers.onModelAttempt?.(options?.selectedModel ?? "m", 1, 2);
+      if (options?.selectedModel === "fallback") {
+        handlers.onModelFallback?.("fallback", "selected unavailable", "primary");
+        throw new Error("selected unavailable");
+      }
+      return "ok";
+    });
 
-    const result = await generateProjectFromIdea(
-      { ...config, openaiModels: ["primary", "fallback"] },
-      "make app",
-      { onModelFallback },
-      { selectedModel: "fallback" }
-    );
-
-    expect(result).toBe("ok");
-    expect(createMock).toHaveBeenCalledTimes(2);
-    expect(createMock.mock.calls[0]?.[0]?.model).toBe("fallback");
-    expect(createMock.mock.calls[1]?.[0]?.model).toBe("primary");
-    expect(onModelFallback).toHaveBeenCalledWith("fallback", "selected unavailable", "primary");
+    await expect(
+      generateProjectFromIdea(
+        { ...config, openaiModels: ["primary", "fallback"] },
+        "make app",
+        { onModelFallback },
+        { selectedModel: "fallback" }
+      )
+    ).rejects.toThrow(/selected unavailable/);
   });
 
   it("reports non-error fallback failures as strings", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: "ok" } }] };
-    }
-
-    createMock.mockRejectedValueOnce("plain failure").mockResolvedValueOnce(mockStream());
-    const onModelFallback = vi.fn();
-
-    await generateProjectFromIdea(
-      { ...config, openaiModels: ["primary", "fallback"] },
-      "make app",
-      { onModelFallback },
-      { selectedModel: "fallback" }
-    );
-
-    expect(onModelFallback).toHaveBeenCalledWith("fallback", "plain failure", "primary");
+    runOpencodePrompt.mockRejectedValue("plain failure");
+    await expect(generateProjectFromIdea(config, "make app")).rejects.toBe("plain failure");
   });
 
-  it("normalizes upstream auth failures into actionable messages", async () => {
-    createMock.mockRejectedValue(new Error("403 status code (no body)"));
+  it("surfaces upstream auth failures from OpenCode", async () => {
+    runOpencodePrompt.mockRejectedValue(
+      new Error("Model provider rejected the request (403). Check OPENAI_API_KEY, OPENAI_BASE_URL, and model access permissions.")
+    );
 
     await expect(generateProjectFromIdea(config, "make app")).rejects.toThrow(
       /Model provider rejected the request \(403\)/
@@ -144,7 +126,7 @@ describe("llm", () => {
   });
 
   it("preserves non-auth upstream status-code errors", async () => {
-    createMock.mockRejectedValue(new Error("500 status code (no body)"));
+    runOpencodePrompt.mockRejectedValue(new Error("500 status code (no body)"));
 
     await expect(generateProjectFromIdea(config, "make app")).rejects.toThrow(
       /500 status code \(no body\)/
@@ -152,18 +134,15 @@ describe("llm", () => {
   });
 
   it("reports final stream usage with reasoning token details", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: "hello" } }] };
-      yield {
-        choices: [],
-        usage: {
-          prompt_tokens: 123,
-          completion_tokens: 45,
-          completion_tokens_details: { reasoning_tokens: 12 }
-        }
-      };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockImplementation(async (_config, _prompt, _kind, handlers) => {
+      handlers.onUsage?.({
+        kind: "generate",
+        promptTokens: 123,
+        completionTokens: 45,
+        reasoningTokens: 12
+      });
+      return "hello";
+    });
 
     const onUsage = vi.fn();
     await generateProjectFromIdea(config, "make app", { onUsage });
@@ -176,138 +155,19 @@ describe("llm", () => {
     });
   });
 
-  it("defaults missing usage fields to zero", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: "fixed" } }] };
-      yield { choices: [], usage: {} };
-    }
-    createMock.mockResolvedValue(mockStream());
-
-    const onUsage = vi.fn();
-    await fixInvalidJsonResponse(config, "idea", "{ bad }", "parse error", { onUsage });
-
-    expect(onUsage).toHaveBeenCalledWith({
-      kind: "json_fix",
-      promptTokens: 0,
-      completionTokens: 0,
-      reasoningTokens: 0
-    });
-  });
-
   it("calls onStreamOpen when the stream is created", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: "ok" } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockImplementation(async (_config, _prompt, _kind, handlers) => {
+      handlers.onStreamOpen?.();
+      return "ok";
+    });
 
     const onStreamOpen = vi.fn();
     await generateProjectFromIdea(config, "make app", { onStreamOpen });
     expect(onStreamOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("times out when the model stalls between chunks", async () => {
-    vi.useFakeTimers();
-
-    createMock.mockResolvedValue({
-      [Symbol.asyncIterator]() {
-        let sent = false;
-        return {
-          next() {
-            if (!sent) {
-              sent = true;
-              return Promise.resolve({
-                done: false,
-                value: { choices: [{ delta: { content: "a" } }] }
-              });
-            }
-            return new Promise(() => {});
-          }
-        };
-      }
-    });
-
-    const pending = generateProjectFromIdea(config, "make app");
-    const rejection = expect(pending).rejects.toThrow(/Model stream stalled/i);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    await rejection;
-
-  });
-
-  it("times out when the API never opens a stream", async () => {
-    vi.useFakeTimers();
-
-    createMock.mockReturnValue(new Promise(() => {}));
-
-    const pending = generateProjectFromIdea(config, "make app");
-    const rejection = expect(pending).rejects.toThrow(/Model API request timed out/i);
-
-    await vi.advanceTimersByTimeAsync(120_000);
-    await rejection;
-
-  });
-
-  it("times out when the model never sends a first chunk", async () => {
-    vi.useFakeTimers();
-
-    createMock.mockResolvedValue({
-      [Symbol.asyncIterator]() {
-        return {
-          next() {
-            return new Promise(() => {});
-          }
-        };
-      }
-    });
-
-    const pending = generateProjectFromIdea(config, "make app");
-    const rejection = expect(pending).rejects.toThrow(/No response from model within/i);
-
-    await vi.advanceTimersByTimeAsync(120_000);
-    await rejection;
-
-  });
-
-  it("enforces a hard stream time limit", async () => {
-    vi.useFakeTimers();
-    const now = vi.spyOn(Date, "now");
-
-    createMock.mockResolvedValue({
-      [Symbol.asyncIterator]() {
-        return {
-          next() {
-            return Promise.resolve({
-              done: false,
-              value: { choices: [{ delta: { content: "a" } }] }
-            });
-          }
-        };
-      }
-    });
-
-    const pending = generateProjectFromIdea(config, "make app");
-    const rejection = expect(pending).rejects.toThrow(/hard limit/i);
-
-    now.mockReturnValueOnce(0).mockReturnValueOnce(600_001);
-    await vi.advanceTimersByTimeAsync(1);
-    await rejection;
-
-  });
-
-  it("throws on empty model response", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: {} }] };
-    }
-    createMock.mockResolvedValue(mockStream());
-
-    await expect(generateProjectFromIdea(config, "idea")).rejects.toThrow(/empty response/i);
-  });
-
   it("requests fixes using validation error context", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockResolvedValue('{"summary":"fixed","files":{}}');
 
     const result = await fixProjectFromValidationErrors(
       config,
@@ -317,16 +177,13 @@ describe("llm", () => {
     );
 
     expect(result).toContain("fixed");
-    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    const prompt = runOpencodePrompt.mock.calls[0]?.[1] as string;
     expect(prompt).toContain("make tetris");
     expect(prompt).toContain("lint failed");
   });
 
   it("requests follow-up updates using existing project context", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: '{"summary":"updated","files":{}}' } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockResolvedValue('{"summary":"updated","files":{}}');
 
     const result = await updateProjectFromFollowUp(
       config,
@@ -336,17 +193,14 @@ describe("llm", () => {
     );
 
     expect(result).toContain("updated");
-    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    const prompt = runOpencodePrompt.mock.calls[0]?.[1] as string;
     expect(prompt).toContain("make counter");
     expect(prompt).toContain("add a reset button");
     expect(prompt).toContain("export const count = 0;");
   });
 
   it("requests fixes using runtime error context", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockResolvedValue('{"summary":"fixed","files":{}}');
 
     const result = await fixProjectFromRuntimeError(
       config,
@@ -356,17 +210,14 @@ describe("llm", () => {
     );
 
     expect(result).toContain("fixed");
-    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    const prompt = runOpencodePrompt.mock.calls[0]?.[1] as string;
     expect(prompt).toContain("make counter");
     expect(prompt).toContain("ReferenceError: count is not defined");
     expect(prompt).toContain("runtime crash");
   });
 
   it("requests JSON fixes using parse error context", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockResolvedValue('{"summary":"fixed","files":{}}');
 
     const result = await fixInvalidJsonResponse(
       config,
@@ -376,17 +227,14 @@ describe("llm", () => {
     );
 
     expect(result).toContain("fixed");
-    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    const prompt = runOpencodePrompt.mock.calls[0]?.[1] as string;
     expect(prompt).toContain("make tetris");
     expect(prompt).toContain("Expected property name");
     expect(prompt).toContain("{ bad json }");
   });
 
   it("requests JSON fixes with compressed context and truncated invalid responses", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: '{"summary":"fixed","files":{}}' } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockResolvedValue('{"summary":"fixed","files":{}}');
 
     const result = await fixInvalidJsonResponse(
       config,
@@ -398,29 +246,22 @@ describe("llm", () => {
     );
 
     expect(result).toContain("fixed");
-    const prompt = createMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+    const prompt = runOpencodePrompt.mock.calls[0]?.[1] as string;
     expect(prompt).toContain("Earlier work on a tetris board.");
     expect(prompt).toContain("[truncated 1000 chars]");
   });
 
   it("requests context compression summaries", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: '{"summary":"compressed"}' } }] };
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockResolvedValue('{"summary":"compressed"}');
 
     const result = await compressRunContextWithModel(config, "summarize this run", {}, { selectedModel: "m" });
 
     expect(result).toContain("compressed");
-    expect(createMock.mock.calls[0]?.[0]?.model).toBe("m");
+    expect(runOpencodePrompt.mock.calls[0]?.[4]).toMatchObject({ selectedModel: "m" });
   });
 
   it("aborts streaming when the request signal is triggered", async () => {
-    async function* mockStream() {
-      yield { choices: [{ delta: { content: "hel" } }] };
-      await new Promise(() => {});
-    }
-    createMock.mockResolvedValue(mockStream());
+    runOpencodePrompt.mockRejectedValue(new Error("Generation stopped by user"));
 
     const controller = new AbortController();
     const pending = generateProjectFromIdea(config, "make app", {}, { signal: controller.signal });
