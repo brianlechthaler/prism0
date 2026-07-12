@@ -4,17 +4,23 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
+  lint-typecheck:
+    name: Lint & typecheck
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,36 +31,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run linter
-        run: npm run lint
-
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck workspaces
-        run: npm run typecheck
+      - name: Lint and typecheck workspaces
+        run: npm run lint && npm run typecheck
 
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -70,6 +61,15 @@ jobs:
 
       - name: Build production artifacts
         run: npm run build
+
+      - name: Upload production build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-build
+          path: |
+            backend/dist
+            frontend/dist
+          if-no-files-found: error
 
       - name: Smoke test production server
         run: |
@@ -92,6 +92,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -103,8 +105,10 @@ jobs:
           push: false
           load: true
           tags: prism0:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=prism0
+          cache-to: type=gha,mode=max,scope=prism0
 
       - name: Smoke test image
         run: |
@@ -140,11 +144,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Validate ollama-docker script
         run: |
           bash -n scripts/ollama-docker.sh
           shellcheck --severity=warning scripts/ollama-docker.sh
+
+      - name: Pre-pull Ollama image
+        run: docker pull ollama/ollama:latest
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -156,8 +165,9 @@ jobs:
           push: false
           load: true
           tags: prism0:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=prism0
 
       - name: Smoke test CPU-only Ollama stack
         run: |
@@ -191,6 +201,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -200,8 +212,16 @@ jobs:
         with:
           go-version: "1.26.x"
 
+      - name: Cache kubeconform
+        id: kubeconform-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/kubeconform
+          key: kubeconform-${{ runner.os }}-${{ runner.arch }}-v0.6.7
+
       - name: Install kubeconform
-        run: go install github.com/yannh/kubeconform/cmd/kubeconform@latest
+        if: steps.kubeconform-cache.outputs.cache-hit != 'true'
+        run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
 
       - name: Render Kustomize manifests
         run: kubectl kustomize k8s > /tmp/prism0-k8s.yaml
@@ -219,36 +239,4 @@ jobs:
         with:
           name: kubernetes-manifests
           path: /tmp/prism0-k8s.yaml
-          if-no-files-found: error
-
-  build:
-    name: Production build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build production artifacts
-        run: npm run build
-
-      - name: Upload production build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: production-build
-          path: |
-            backend/dist
-            frontend/dist
           if-no-files-found: error
