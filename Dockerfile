@@ -2,7 +2,7 @@
 FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
-RUN npm install -g npm@latest
+RUN npm install -g npm@10
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
@@ -28,7 +28,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8787
-RUN npm install -g npm@latest
+RUN npm install -g npm@10
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
