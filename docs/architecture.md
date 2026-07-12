@@ -51,10 +51,12 @@ prism0 turns a text idea into a small browser app, validates the generated proje
 3. User logs in at `POST /api/auth/login`; backend sets an HttpOnly session cookie.
 4. `GET /api/auth/me` and auth middleware attach `user` to subsequent requests.
 
-### Generation (authenticated)
+### Generation
 
-1. Browser posts an idea to `POST /api/generate` (session required).
-2. Backend creates a run, records generation history for the user, and starts generation asynchronously.
+When login is enabled (`--enable-login`), generation requires a session. Otherwise the generator works anonymously.
+
+1. Browser posts an idea to `POST /api/generate`.
+2. Backend creates a run, records generation history for the user when login is enabled, and starts generation asynchronously.
 3. Browser connects to `GET /api/generate/:runId/events`.
 4. Backend streams logs and terminal events over SSE.
 5. Backend validates the generated project (unless YOLO mode skips harness on initial generation).

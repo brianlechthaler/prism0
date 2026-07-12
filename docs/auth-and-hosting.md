@@ -1,6 +1,6 @@
 # Authentication, accounts, and hosted projects
 
-prism0 includes username/password accounts with optional email verification, a per-user dashboard, and the ability to **publish** generated apps to stable public URLs. Generation and most API routes require a logged-in session.
+prism0 includes optional username/password accounts with optional email verification, a per-user dashboard, and the ability to **publish** generated apps to stable public URLs. **Login is disabled by default** — start the backend with `--enable-login` to require sessions for generation and project APIs.
 
 This document covers user flows, routes, APIs, persistence, configuration, and production notes. For generation pipeline details, see [architecture.md](./architecture.md).
 
@@ -8,12 +8,13 @@ This document covers user flows, routes, APIs, persistence, configuration, and p
 
 | Area | Summary |
 | --- | --- |
-| **Accounts** | Register with username and password. Email is optional when `AUTH_EMAIL_ENABLED=true`; verified email is required before login only when an address is provided. |
+| **Login toggle** | Off by default. Pass `--enable-login` (or `--disable-login` to override a prior enable) when starting the backend. The frontend reads `GET /api/auth/features` (`loginEnabled`, `emailEnabled`) to show or hide auth UI. |
+| **Accounts** | Available when login is enabled. Register with username and password. Email is optional when `AUTH_EMAIL_ENABLED=true`; verified email is required before login only when an address is provided. |
 | **Sessions** | HttpOnly cookie `prism0_session` (7-day default TTL). |
 | **Persistence** | SQLite via `better-sqlite3` at `DATABASE_PATH` (default `./data/prism0.db`). |
 | **Dashboard** | Projects, generation history, token usage, profile settings. |
 | **Hosting** | Published apps are served at `/h/:slug` with a separate manage link `/manage/:editToken`. |
-| **Generator** | Authenticated users open `/app` (or `/app/:projectId` to continue a hosted project). |
+| **Generator** | Open `/app` (or `/app/:projectId` to continue a hosted project). Requires login only when `--enable-login` is set. |
 
 Backend modules:
 
@@ -71,14 +72,14 @@ Authenticated, verified users open `/dashboard` to see:
 
 Data comes from `GET /api/dashboard`.
 
-### Generation (authenticated)
+### Generation
 
-The generator moved from the root URL to **`/app`** (protected). Flow:
+The generator lives at **`/app`**. When login is disabled (default), routes are open. With `--enable-login`, `ProtectedRoute` requires a session.
 
-1. User submits an idea; `POST /api/generate` requires auth.
-2. Progress streams on `GET /api/generate/:runId/events` (auth required).
+1. User submits an idea; `POST /api/generate` requires auth only when login is enabled.
+2. Progress streams on `GET /api/generate/:runId/events`.
 3. Stop / pause / resume: `POST /api/generate/:runId/stop|pause|resume`.
-4. Follow-ups, repairs, and download behave as before but require auth.
+4. Follow-ups, repairs, and download behave as before; auth is required only when login is enabled.
 
 Optional body field `projectId` associates the run with an existing hosted project for history tracking.
 
