@@ -8,6 +8,7 @@ COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
 RUN npm ci --ignore-scripts \
+  && node node_modules/opencode-ai/postinstall.mjs \
   && npm ci --prefix backend/validation-harness
 
 # better-sqlite3 is a native addon; compile once here with build tools, then copy into runtime.
@@ -32,6 +33,7 @@ COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
 RUN npm ci --omit=dev --ignore-scripts \
+  && node node_modules/opencode-ai/postinstall.mjs \
   && npm ci --prefix backend/validation-harness
 
 COPY --from=build /app/node_modules/better-sqlite3 /app/node_modules/better-sqlite3

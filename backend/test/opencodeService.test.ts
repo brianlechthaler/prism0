@@ -20,12 +20,18 @@ vi.mock("node:net", async (importOriginal) => {
 import {
   abortOpencodeSession,
   buildOpencodeConfig,
+  buildOpencodeModelRegistry,
+  ensureOpencodeBinary,
   ensureOpencodeOnPath,
   findAvailablePort,
   getModelCandidates,
+  installOpencodeBinary,
+  isOpencodeStub,
   parseOpencodeModel,
   resolveListenPort,
+  resolveOpencodeBinaryPath,
   resolveOpencodeBinDir,
+  resolveOpencodePackageDir,
   runOpencodePrompt,
   runOpencodeShell,
   shutdownOpencode,
@@ -119,9 +125,21 @@ describe("opencodeService", () => {
 
   it("builds OpenCode config from prism0 AppConfig", () => {
     expect(buildOpencodeConfig(config)).toEqual({
-      model: "openai/gpt-4.1-mini",
+      model: "llm/gpt-4.1-mini",
       provider: {
-        openai: {
+        llm: {
+          npm: "@ai-sdk/openai-compatible",
+          models: {
+            "gpt-4.1-mini": {
+              id: "gpt-4.1-mini",
+              name: "gpt-4.1-mini",
+              tool_call: true,
+              limit: {
+                context: 128_000,
+                output: 16_384
+              }
+            }
+          },
           options: {
             apiKey: "k",
             baseURL: "https://example.com/v1",
@@ -129,18 +147,48 @@ describe("opencodeService", () => {
           }
         }
       },
-      enabled_providers: ["openai"],
+      enabled_providers: ["llm"],
       disabled_providers: []
     });
   });
 
+  it("registers all configured models for OpenCode lookup", () => {
+    expect(
+      buildOpencodeModelRegistry({
+        ...config,
+        openaiModel: "primary",
+        openaiModels: ["primary", "fallback-a", "fallback-b"],
+        contextWindowTokens: 32_000
+      })
+    ).toEqual({
+      primary: {
+        id: "primary",
+        name: "primary",
+        tool_call: true,
+        limit: { context: 32_000, output: 8_000 }
+      },
+      "fallback-a": {
+        id: "fallback-a",
+        name: "fallback-a",
+        tool_call: true,
+        limit: { context: 32_000, output: 8_000 }
+      },
+      "fallback-b": {
+        id: "fallback-b",
+        name: "fallback-b",
+        tool_call: true,
+        limit: { context: 32_000, output: 8_000 }
+      }
+    });
+  });
+
   it("parses provider/model pairs", () => {
-    expect(parseOpencodeModel("openai/gpt-4.1-mini")).toEqual({
-      providerID: "openai",
+    expect(parseOpencodeModel("llm/gpt-4.1-mini")).toEqual({
+      providerID: "llm",
       modelID: "gpt-4.1-mini"
     });
     expect(parseOpencodeModel("gpt-4.1-mini")).toEqual({
-      providerID: "openai",
+      providerID: "llm",
       modelID: "gpt-4.1-mini"
     });
   });
@@ -205,6 +253,129 @@ describe("opencodeService", () => {
   it("normalizes non-error startup failures", async () => {
     createOpencodeServer.mockRejectedValue("plain startup failure");
     await expect(startOpencodeServer(config)).rejects.toThrow(/plain startup failure/);
+  });
+
+  it("detects stub binaries and installs the OpenCode CLI when postinstall was skipped", async () => {
+    const readFile = vi.fn()
+      .mockReturnValueOnce("echo \"postinstall script was not run\"")
+      .mockReturnValueOnce("real-binary");
+    const spawnSync = vi.fn().mockReturnValue({ status: 0, stdout: "", stderr: "" });
+    const deps = {
+      spawnSync,
+      readFile,
+      execPath: "/usr/bin/node",
+      exists: () => true
+    };
+
+    await ensureOpencodeBinary(deps);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "/usr/bin/node",
+      [expect.stringMatching(/postinstall\.mjs$/)],
+      expect.objectContaining({ encoding: "utf8" })
+    );
+  });
+
+  it("rejects when OpenCode postinstall fails", async () => {
+    const deps = {
+      spawnSync: vi.fn().mockReturnValue({ status: 1, stdout: "", stderr: "install failed" }),
+      readFile: vi.fn().mockReturnValue("postinstall script was not run"),
+      execPath: "/usr/bin/node",
+      exists: () => true
+    };
+
+    await expect(ensureOpencodeBinary(deps)).rejects.toThrow(/install failed/);
+  });
+
+  it("uses a fallback message when OpenCode postinstall fails without output", async () => {
+    const deps = {
+      spawnSync: vi.fn().mockReturnValue({ status: 1, stdout: "", stderr: "" }),
+      readFile: vi.fn().mockReturnValue("postinstall script was not run"),
+      execPath: "/usr/bin/node",
+      exists: () => true
+    };
+
+    expect(() => installOpencodeBinary(deps)).toThrow(/Failed to install the OpenCode CLI binary/);
+  });
+
+  it("rejects when OpenCode postinstall leaves a stub binary", async () => {
+    const deps = {
+      spawnSync: vi.fn().mockReturnValue({ status: 0, stdout: "", stderr: "" }),
+      readFile: vi.fn().mockReturnValue("postinstall script was not run"),
+      execPath: "/usr/bin/node",
+      exists: () => true
+    };
+
+    await expect(ensureOpencodeBinary(deps)).rejects.toThrow(/still missing after running postinstall/);
+  });
+
+  it("skips OpenCode installation when the binary is already present", async () => {
+    const spawnSync = vi.fn();
+    const deps = {
+      spawnSync,
+      readFile: vi.fn().mockReturnValue("\u0000ELF"),
+      execPath: "/usr/bin/node",
+      exists: () => true
+    };
+
+    await ensureOpencodeBinary(deps);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it("surfaces stdout when OpenCode postinstall fails without stderr", () => {
+    const deps = {
+      spawnSync: vi.fn().mockReturnValue({ status: 1, stdout: "stdout fail", stderr: "" }),
+      readFile: vi.fn().mockReturnValue("postinstall script was not run"),
+      execPath: "/usr/bin/node",
+      exists: () => true
+    };
+
+    expect(() => installOpencodeBinary(deps)).toThrow(/stdout fail/);
+  });
+
+  it("resolves OpenCode package paths and detects stub binaries", () => {
+    expect(resolveOpencodePackageDir(() => false)).toContain("node_modules/opencode-ai");
+    expect(resolveOpencodePackageDir((targetPath) => targetPath.endsWith("postinstall.mjs"))).toContain(
+      "opencode-ai"
+    );
+    expect(resolveOpencodeBinaryPath(() => false)).toContain("opencode-ai/bin/opencode.exe");
+    expect(isOpencodeStub("/tmp/opencode", () => {
+      throw new Error("missing");
+    })).toBe(true);
+    expect(isOpencodeStub("/tmp/opencode", () => "postinstall script was not run")).toBe(true);
+    expect(isOpencodeStub("/tmp/opencode", () => "\u0000ELF")).toBe(false);
+    expect(typeof isOpencodeStub(resolveOpencodeBinaryPath())).toBe("boolean");
+  });
+
+  it("reuses an in-flight OpenCode install", async () => {
+    let installs = 0;
+    let releaseInstall = () => {};
+    const installGate = new Promise<void>((resolve) => {
+      releaseInstall = resolve;
+    });
+    const deps = {
+      spawnSync: vi.fn().mockImplementation(() => {
+        installs += 1;
+        return { status: 0, stdout: "", stderr: "" };
+      }),
+      readFile: vi.fn()
+        .mockReturnValueOnce("postinstall script was not run")
+        .mockReturnValueOnce("postinstall script was not run")
+        .mockReturnValue("real-binary"),
+      execPath: "/usr/bin/node",
+      exists: () => true,
+      waitBeforeInstall: () => installGate
+    };
+
+    const first = ensureOpencodeBinary(deps);
+    await Promise.resolve();
+    const second = ensureOpencodeBinary(deps);
+    releaseInstall();
+    await Promise.all([first, second]);
+    expect(installs).toBe(1);
+  });
+
+  it("uses default install dependencies when the binary is already present", async () => {
+    await ensureOpencodeBinary();
   });
 
   it("prepends the OpenCode binary directory to PATH", () => {

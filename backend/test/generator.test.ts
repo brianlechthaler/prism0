@@ -1539,6 +1539,9 @@ describe("run control", () => {
 
   it("handles non-error failures during resume", async () => {
     vi.spyOn(validateModule, "validateGeneratedProject").mockRejectedValue("plain resume failure");
+    vi.spyOn(await import("../src/llm.js"), "fixProjectFromValidationErrors").mockRejectedValue(
+      "validation fix failed"
+    );
 
     const store = new RunStore();
     const run = store.create("make app");
@@ -1560,6 +1563,9 @@ describe("run control", () => {
     );
     vi.spyOn(validateModule, "validateGeneratedProject").mockRejectedValue(
       new Error("lint still failing")
+    );
+    vi.spyOn(await import("../src/llm.js"), "fixProjectFromValidationErrors").mockRejectedValue(
+      new Error("validation fix failed")
     );
 
     const store = new RunStore();
