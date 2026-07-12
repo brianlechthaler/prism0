@@ -4,7 +4,7 @@
 
 ### Product overview
 
-**prism0** is an npm workspaces monorepo (`backend`, `frontend`) that generates small frontend apps from text prompts. Users register, verify email, and log in; the generator lives at `/app`. Published apps are served at `/h/:slug`. Dev runs two processes; production is a single Node process serving `frontend/dist`, `/api` routes, and hosted projects.
+**prism0** is an npm workspaces monorepo (`backend`, `frontend`) that generates small frontend apps from text prompts. Login and accounts are **disabled by default**; pass `--enable-login` to the backend to turn on register/login flows. The generator lives at `/app`. Published apps are served at `/h/:slug`. Dev runs two processes; production is a single Node process serving `frontend/dist`, `/api` routes, and hosted projects.
 
 ### Services
 
@@ -49,8 +49,8 @@ export OPENAI_API_KEY="your-key"
 npm run dev
 ```
 
-- Frontend: http://localhost:5173 (splash, login, register, dashboard)
-- Generator (after login): http://localhost:5173/app
+- Frontend: http://localhost:5173 (splash; login/register UI only when backend runs with `--enable-login`)
+- Generator: http://localhost:5173/app (works without login by default)
 - Backend: http://localhost:8787
 
-For backend-only or frontend-only work: `npm run dev -w backend` or `npm run dev -w frontend`.
+For backend-only or frontend-only work: `npm run dev -w backend` or `npm run dev -w frontend`. Enable accounts with `npm run dev -w backend -- --enable-login`.

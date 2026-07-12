@@ -65,4 +65,10 @@ describe("parseCliArgs", () => {
       authEnabled: false
     });
   });
+
+  it("allows login to be disabled without a prior enable flag", () => {
+    expect(parseCliArgs(["--disable-login"])).toEqual({
+      authEnabled: false
+    });
+  });
 });

@@ -29,7 +29,7 @@ Set secrets in the deployment platform, not in source control or container image
 | `SESSION_TTL_MS` | No | `604800000` | Session lifetime (ms). |
 | `AUTH_EXPOSE_VERIFICATION_TOKEN` | No | `false` | Dev/test only — never `true` in production. |
 
-Account, hosting, and API details: [auth-and-hosting.md](./auth-and-hosting.md).
+**Login is disabled by default.** Pass `--enable-login` when starting the backend (for example `node backend/dist/server.js --enable-login`) to require accounts for generation and project APIs. See [auth-and-hosting.md](./auth-and-hosting.md) for account, hosting, and API details.
 
 ## Verify before deploying
 

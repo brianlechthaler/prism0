@@ -48,8 +48,9 @@ Type an idea (e.g. “make a tetris game”) and `prism0` generates a small brow
 
 ### Accounts, dashboard, and hosting
 
-- **User accounts** — Register with username and password. Email verification is disabled by default; set `AUTH_EMAIL_ENABLED=true` to allow optional email at signup.
-- **Sessions** — HttpOnly cookie (`prism0_session`); generation and most API routes require an authenticated, verified session.
+- **Login disabled by default** — User accounts and login flows are off unless the backend starts with `--enable-login`. Without it, the generator works anonymously and auth endpoints return 404.
+- **User accounts** — When login is enabled, register with username and password. Email verification is disabled by default; set `AUTH_EMAIL_ENABLED=true` to allow optional email at signup.
+- **Sessions** — When login is enabled, an HttpOnly cookie (`prism0_session`) gates generation, project APIs, and the dashboard behind an authenticated session.
 - **Dashboard** — `/dashboard` shows hosted projects, generation history, token usage, and profile settings.
 - **Publish to the web** — After a successful run, publish to a stable public URL at `/h/:slug` with a separate manage link at `/manage/:editToken` (page views, versioning, revert, delete).
 - **SQLite persistence** — Users, sessions, projects, and generation history are stored in a local SQLite database (`DATABASE_PATH`). Back up this file in production.
@@ -133,12 +134,16 @@ CLI flags override environment variables when starting the backend (`npm run dev
 | `--disable-model-picker` | Disables the model picker |
 | `--enable-yolo-mode` | Enables YOLO mode (default) |
 | `--disable-yolo-mode` | Disables YOLO mode and hides the UI checkbox |
+| `--enable-login` | Enables user accounts, login/register UI, and authenticated project APIs |
+| `--disable-login` | Disables login (default when the flag is omitted) |
 | `--host <host>` | Sets `HOST` |
 | `--port <port>` | Sets `PORT` |
 
+Login and account features are **disabled by default**. Pass `--enable-login` when starting the backend to require sessions for generation and project management.
+
 ## API
 
-**Auth:** Most routes below require a session cookie from `POST /api/auth/login` (verified email). Exceptions: `/api/health`, `/api/auth/register`, `/api/auth/login`, `/api/auth/verify-email`, `/api/auth/resend-verification`, `/api/auth/me`, public `/h/:slug` hosting, and read-only `/api/projects/manage/:editToken`.
+**Auth:** When the backend starts with `--enable-login`, most routes below require a session cookie from `POST /api/auth/login` (verified email when an address is on the account). When login is disabled, generation APIs work without a session and auth register/login routes return 404. Always public: `/api/health`, `/api/auth/features`, `/api/auth/me` (returns `{ authenticated: false }` when login is disabled), public `/h/:slug` hosting, and read-only `/api/projects/manage/:editToken`.
 
 ### Health
 
@@ -150,6 +155,7 @@ CLI flags override environment variables when starting the backend (`npm run dev
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
+| `GET` | `/api/auth/features` | No | `{ loginEnabled, emailEnabled }` — frontend uses this to show or hide auth UI |
 | `GET` | `/api/auth/me` | Optional | Current session: `{ authenticated, user? }` |
 | `POST` | `/api/auth/register` | No | `{ username, password, email? }` → `{ user, verificationToken? }` |
 | `POST` | `/api/auth/login` | No | Sets `prism0_session` cookie; returns `{ user }` |
@@ -162,7 +168,9 @@ CLI flags override environment variables when starting the backend (`npm run dev
 | `DELETE` | `/api/auth/account` | Yes | `{ password }` |
 | `GET` | `/api/dashboard` | Yes | Projects, history, token summary |
 
-### Generation (authenticated)
+### Generation
+
+Requires a session when the backend runs with `--enable-login`; otherwise anonymous.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -225,9 +233,15 @@ npm run dev
 
 - Frontend: `http://localhost:5173` (proxies `/api` and `/h` to backend)
 - Backend: `http://localhost:8787`
-- Generator (after login): `http://localhost:5173/app`
+- Generator: `http://localhost:5173/app` (open directly; login is disabled by default)
 
-You can also pass CLI flags to the backend dev process:
+To enable accounts and require login for generation and project APIs:
+
+```bash
+npm run dev -w backend -- --enable-login
+```
+
+You can also pass other CLI flags to the backend dev process:
 
 ```bash
 npm run dev -w backend -- --api-key "$OPENAI_API_KEY" --base-url "$OPENAI_BASE_URL" --model "nvidia/nemotron-3-ultra-550b-a55b" --enable-model-picker --host "127.0.0.1" --port 8787
