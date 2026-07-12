@@ -1,10 +1,11 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   formatPreviewRuntimeError,
   GeneratorApp,
   PREVIEW_ERROR_MESSAGE_TYPE,
+  PreviewErrorBoundary,
   withPreviewErrorReporter
 } from "../src/ui/GeneratorApp";
 import type { GenerationState } from "../src/hooks/useGeneration";
@@ -63,6 +64,32 @@ describe("GeneratorApp error state", () => {
   it("renders the error message", () => {
     renderWithRouter(<GeneratorApp />);
     expect(screen.getByText(/something broke/i)).toBeInTheDocument();
+  });
+
+  it("keeps the generator mounted when the preview throws", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const BrokenPreview = () => {
+      throw new Error("preview module failed");
+    };
+
+    render(
+      <PreviewErrorBoundary>
+        <BrokenPreview />
+      </PreviewErrorBoundary>
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/preview could not load/i);
+    consoleError.mockRestore();
+  });
+
+  it("renders preview children when they do not throw", () => {
+    render(
+      <PreviewErrorBoundary>
+        <div>working preview</div>
+      </PreviewErrorBoundary>
+    );
+
+    expect(screen.getByText("working preview")).toBeInTheDocument();
   });
 
   it("injects preview runtime error reporting into generated html", () => {

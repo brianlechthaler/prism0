@@ -49,7 +49,48 @@ body {
 .page {
   min-height: 100%;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+}
+
+.generatorPage {
+  min-height: 100%;
+}
+
+.page .header {
+  position: relative;
+  z-index: 1;
+}
+
+.generatorMain {
+  overflow: visible;
+}
+
+.generatorControls {
+  scroll-margin-top: 16px;
+}
+
+.generatorWorkspace {
+  overflow: visible;
+  overflow-anchor: none;
+}
+
+.backToPrompt {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(156, 255, 239, 0.42);
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: rgba(12, 11, 18, 0.92);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+  backdrop-filter: blur(10px);
 }
 
 .bg {
@@ -479,6 +520,10 @@ body {
     grid-template-columns: 420px 1fr;
     align-items: start;
   }
+
+  .generatorWorkspace {
+    align-content: start;
+  }
 }
 
 .panel {
@@ -769,6 +814,11 @@ body {
 }
 
 .panelEditor {
+  min-height: 420px;
+  overflow-anchor: none;
+}
+
+.panelEditor .sp-layout {
   min-height: 420px;
 }
 

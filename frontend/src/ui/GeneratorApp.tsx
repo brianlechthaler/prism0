@@ -8,14 +8,35 @@ import {
   useGeneration,
   useModelOptions
 } from "../hooks/useGeneration";
+import { EditorPreview } from "./EditorPreview";
 import { ProgressPanel } from "./ProgressPanel";
 
 const DEFAULT_IDEA = "make a tiny tetris-like game";
 export const PREVIEW_ERROR_MESSAGE_TYPE = "prism0-preview-error";
-const LazyEditorPreview = React.lazy(async () => {
-  const { EditorPreview } = await import("./EditorPreview");
-  return { default: EditorPreview };
-});
+
+type PreviewErrorBoundaryState = { failed: boolean };
+
+export class PreviewErrorBoundary extends React.Component<
+  React.PropsWithChildren,
+  PreviewErrorBoundaryState
+> {
+  state: PreviewErrorBoundaryState = { failed: false };
+
+  static getDerivedStateFromError(): PreviewErrorBoundaryState {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="runtimeError" role="alert">
+          Preview could not load. The generated files and the rest of prism0 are still available.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type PreviewRuntimeError = {
   type: typeof PREVIEW_ERROR_MESSAGE_TYPE;
@@ -308,7 +329,7 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
   };
 
   return (
-    <div className="page">
+    <div className="page generatorPage">
       <div className="bg" aria-hidden="true" />
       <div className="sparkles" aria-hidden="true">
         <span />
@@ -328,8 +349,8 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
         </nav>
       </header>
 
-      <main className="main">
-        <section className="card">
+      <main className="main generatorMain">
+        <section className="card generatorControls" id="generator-prompt">
           <label className="label" htmlFor="idea">
             {promptLabel}
           </label>
@@ -513,7 +534,7 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
           ) : null}
         </section>
 
-        <section className="grid">
+        <section className="grid generatorWorkspace">
           <div className="panel">
             <div className="panelTitle">Verbose progress</div>
             {"logs" in state ? (
@@ -555,9 +576,9 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
                     </p>
                   </div>
                 ) : null}
-                <React.Suspense fallback={<div className="placeholder">Loading editor…</div>}>
-                  <LazyEditorPreview files={editorFiles} onBundlerError={handleBundlerError} />
-                </React.Suspense>
+                <PreviewErrorBoundary key={activeRunId}>
+                  <EditorPreview files={editorFiles} onBundlerError={handleBundlerError} />
+                </PreviewErrorBoundary>
                 {repairErrorText && state.kind === "ready" ? (
                   <div className="runtimeError" role="alert">
                     <div className="runtimeErrorTitle">Generated app has an error</div>
@@ -579,6 +600,9 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
           </div>
         </section>
       </main>
+      <a className="backToPrompt" href="#generator-prompt">
+        Back to prompt
+      </a>
     </div>
   );
 }

@@ -135,6 +135,52 @@ describe("failGeneration", () => {
       repairable: true
     });
   });
+
+  it("preserves files when failing after a ready run", () => {
+    expect(
+      failGeneration(
+        {
+          kind: "ready",
+          runId: "r1",
+          logs: ["Ready."],
+          streams: emptyRunStreams(),
+          files: { "index.html": "<html></html>" }
+        },
+        "Lost connection to live progress. Check backend logs and retry."
+      )
+    ).toEqual({
+      kind: "error",
+      message: "Lost connection to live progress. Check backend logs and retry.",
+      logs: ["Ready."],
+      streams: emptyRunStreams(),
+      runId: "r1",
+      files: { "index.html": "<html></html>" },
+      repairable: true
+    });
+  });
+
+  it("preserves files when failing from an existing error state", () => {
+    expect(
+      failGeneration(
+        {
+          kind: "error",
+          message: "first",
+          logs: ["failed"],
+          streams: emptyRunStreams(),
+          files: { "index.js": "broken();" },
+          repairable: true
+        },
+        "second failure"
+      )
+    ).toEqual({
+      kind: "error",
+      message: "second failure",
+      logs: ["failed"],
+      streams: emptyRunStreams(),
+      files: { "index.js": "broken();" },
+      repairable: true
+    });
+  });
 });
 
 describe("extractValidationErrorFromLogs", () => {

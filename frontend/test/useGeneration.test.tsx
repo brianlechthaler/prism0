@@ -443,6 +443,42 @@ describe("useGeneration", () => {
     expect(closed.length).toBeGreaterThan(0);
   });
 
+  it("ignores SSE errors after a successful completion", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ runId: "r-done" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    );
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const { result } = renderHook(() => useGeneration());
+    await act(async () => {
+      await result.current.start("make app");
+    });
+
+    const source = eventSources.at(-1)!;
+    act(() => {
+      source.onmessage?.({
+        data: JSON.stringify({
+          type: "done",
+          files: { "index.html": "<html></html>" }
+        })
+      } as MessageEvent);
+      source.onerror?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.kind).toBe("ready");
+    });
+    if (result.current.state.kind === "ready") {
+      expect(result.current.state.files["index.html"]).toBe("<html></html>");
+    }
+  });
+
   it("handles SSE connection errors", async () => {
     vi.stubGlobal(
       "fetch",

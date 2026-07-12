@@ -294,21 +294,21 @@ Use `scripts/ollama-docker.sh` to run **Ollama** and **prism0** in separate cont
 Requirements:
 
 - Docker
-- For GPU inference: NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+- For GPU inference (default): NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
-Quick start (CPU inference):
+Quick start (GPU inference on a 24 GiB card, for example RTX 3090/4090):
 
 ```bash
 ./scripts/ollama-docker.sh start
 ```
 
-Open **http://localhost:8787**. The first run pulls the latest `ghcr.io/brianlechthaler/prism0` image and the default coding model (`qwen2.5-coder:32b`), which can take several minutes. If the pull fails (for example `denied` from stale `ghcr.io` credentials), the script automatically builds from the local repo when run inside a clone.
+Open **http://localhost:8787**. The first run pulls the latest `ghcr.io/brianlechthaler/prism0` image and the default coding model (`qwen2.5-coder:14b` with GPU, `qwen2.5-coder:7b` on CPU), which can take several minutes. If the pull fails (for example `denied` from stale `ghcr.io` credentials), the script automatically builds from the local repo when run inside a clone.
 
-Enable GPU acceleration on a 24 GiB card (for example RTX 3090/4090):
+CPU-only inference (no GPU passthrough):
 
 ```bash
-./scripts/ollama-docker.sh start --gpu
-# or: OLLAMA_GPU=all ./scripts/ollama-docker.sh start
+./scripts/ollama-docker.sh start --cpu
+# or: OLLAMA_GPU=0 ./scripts/ollama-docker.sh start
 ```
 
 Other commands:
@@ -324,8 +324,9 @@ Useful environment overrides:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `OLLAMA_MODEL` | `qwen2.5-coder:32b` | ~19–20 GiB VRAM with `--gpu`; use `qwen2.5-coder:14b` on smaller GPUs |
-| `OLLAMA_GPU` | `0` | Set to `all` or pass `--gpu` to enable NVIDIA GPU passthrough |
+| `OLLAMA_MODEL` | `qwen2.5-coder:14b` with GPU, `qwen2.5-coder:7b` on CPU | Default GPU model runs 100% on GPU on a 24 GiB card; use `qwen2.5-coder:32b` only on 40+ GiB GPUs |
+| `OLLAMA_GPU` | `all` | Set to `0` or pass `--cpu` for CPU-only inference without GPU passthrough |
+| `OLLAMA_PORT` | `11434` | Host port for the Ollama API; auto-falls back to `11435` if `11434` is already taken (for example by a standalone `ollama` container) |
 | `PRISM0_PORT` | `8787` | Host port for the web UI |
 | `PRISM0_IMAGE` | `ghcr.io/brianlechthaler/prism0:latest` | Container image for the prism0 app |
 | `SKIP_MODEL_PULL` | unset | Set to `1` to skip `ollama pull` when the model is already cached |
@@ -334,6 +335,8 @@ Useful environment overrides:
 | `PRISM0_PULL_ONLY` | unset | Set to `1` to fail instead of falling back to a local build when pull fails |
 
 Ollama model files are stored in the Docker volume `prism0-ollama-data`. `./scripts/ollama-docker.sh stop` removes the containers but keeps that volume for faster restarts.
+
+If a standalone Ollama container already owns host port `11434`, the script maps `prism0-ollama` to `11435` instead. prism0 still reaches Ollama at `http://ollama:11434` on the shared Docker network. GPU is required by default; the script fails fast if NVIDIA Container Toolkit is missing, `--gpus` cannot be applied, or the model would spill over to CPU.
 
 See `./scripts/ollama-docker.sh --help` for the full option list.
 

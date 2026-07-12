@@ -174,6 +174,13 @@ export function failGeneration(
   const streams = "streams" in state ? state.streams : emptyRunStreams();
   const usage = "usage" in state ? state.usage : undefined;
   const runId = details?.runId ?? ("runId" in state ? state.runId : undefined);
+  const files =
+    details?.files ??
+    (state.kind === "ready" || state.kind === "paused" ? state.files : undefined) ??
+    (state.kind === "error" ? state.files : undefined);
+  const repairable =
+    details?.repairable ??
+    (files && Object.keys(files).length > 0 ? true : undefined);
   return {
     kind: "error",
     message,
@@ -181,8 +188,8 @@ export function failGeneration(
     streams,
     usage,
     ...(runId ? { runId } : {}),
-    ...(details?.files ? { files: details.files } : {}),
-    ...(details?.repairable ? { repairable: true } : {})
+    ...(files ? { files } : {}),
+    ...(repairable ? { repairable: true } : {})
   };
 }
 
@@ -356,7 +363,7 @@ export function useGeneration() {
 
     es.onerror = () => {
       setState((s) => {
-        if (s.kind === "paused") return s;
+        if (s.kind !== "generating") return s;
         return failGeneration(s, "Lost connection to live progress. Check backend logs and retry.");
       });
       es.close();
