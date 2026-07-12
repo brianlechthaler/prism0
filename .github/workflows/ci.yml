@@ -107,8 +107,8 @@ jobs:
           tags: prism0:ci
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=prism0
-          cache-to: type=gha,mode=max,scope=prism0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Smoke test image
         run: |
@@ -152,9 +152,6 @@ jobs:
           bash -n scripts/ollama-docker.sh
           shellcheck --severity=warning scripts/ollama-docker.sh
 
-      - name: Pre-pull Ollama image
-        run: docker pull ollama/ollama:latest
-
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -167,7 +164,7 @@ jobs:
           tags: prism0:ci
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=prism0
+          cache-from: type=gha
 
       - name: Smoke test CPU-only Ollama stack
         run: |

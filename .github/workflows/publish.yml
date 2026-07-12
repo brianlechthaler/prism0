@@ -62,8 +62,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=prism0
-          cache-to: type=gha,mode=max,scope=prism0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Set GHCR package visibility to public
         env:
