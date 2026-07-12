@@ -11,7 +11,7 @@ readonly OLLAMA_VOLUME="${OLLAMA_VOLUME:-prism0-ollama-data}"
 readonly OLLAMA_IMAGE="${OLLAMA_IMAGE:-ollama/ollama:latest}"
 readonly PRISM0_IMAGE="${PRISM0_IMAGE:-ghcr.io/brianlechthaler/prism0:latest}"
 readonly OLLAMA_CPU_MODEL_DEFAULT="qwen2.5-coder:7b"
-readonly OLLAMA_GPU_MODEL_DEFAULT="qwen2.5-coder:32b"
+readonly OLLAMA_GPU_MODEL_DEFAULT="qwen2.5-coder:14b"
 OLLAMA_MODEL="${OLLAMA_MODEL:-}"
 OLLAMA_GPU="${OLLAMA_GPU:-all}"
 readonly PRISM0_PORT="${PRISM0_PORT:-8787}"
@@ -39,7 +39,7 @@ Flags:
   --cpu   Disable GPU passthrough and use CPU inference (equivalent to OLLAMA_GPU=0)
 
 Environment overrides:
-  OLLAMA_MODEL            Coding model to pull and use (default: qwen2.5-coder:32b with GPU, qwen2.5-coder:7b on CPU)
+  OLLAMA_MODEL            Coding model to pull and use (default: qwen2.5-coder:14b with GPU, qwen2.5-coder:7b on CPU)
   OLLAMA_GPU              GPU devices for Ollama (default: all; use 0 or none for CPU-only)
   OLLAMA_ENABLE_GPU       Set to 1 to enable GPU passthrough when OLLAMA_GPU=0 (same as OLLAMA_GPU=all)
   PRISM0_PORT             Host port for the prism0 web UI (default: 8787)
@@ -52,8 +52,9 @@ Environment overrides:
   SKIP_IMAGE_PULL=1       Skip "docker pull" for the prism0 image (use a preloaded tag)
   SKIP_MODEL_PULL=1       Skip "ollama pull" if the model is already cached
 
-The default model targets a 24 GiB GPU (for example RTX 3090/4090). Smaller cards may
-need a lighter model; 40+ GiB cards can use a larger one.
+The default GPU model (qwen2.5-coder:14b) fits fully in VRAM on a 24 GiB GPU (for example
+RTX 3090/4090) without CPU spillover. Smaller cards may need a lighter model; 40+ GiB
+cards can set OLLAMA_MODEL=qwen2.5-coder:32b for a larger model.
 
 Examples:
   ./scripts/ollama-docker.sh start
@@ -238,7 +239,18 @@ verify_ollama_inference_device() {
     exit 1
   fi
 
-  echo "Inference device verified: ${ps_line}"
+  if [[ "$ps_line" != *"100% GPU"* ]]; then
+    cat >&2 <<EOF
+ERROR: ${OLLAMA_MODEL} is spilling over to CPU (${ps_line}).
+GPU-only inference is required. Use a smaller model that fits in VRAM, for example:
+  OLLAMA_MODEL=qwen2.5-coder:14b ./scripts/ollama-docker.sh start
+Or reduce OPENAI_CONTEXT_WINDOW if you need a larger model on limited VRAM.
+EOF
+    docker exec "$OLLAMA_CONTAINER" ollama ps >&2 || true
+    exit 1
+  fi
+
+  echo "Inference device verified (100% GPU): ${ps_line}"
   docker exec "$OLLAMA_CONTAINER" ollama ps 2>/dev/null || true
 }
 
@@ -381,6 +393,8 @@ start_ollama() {
     else
       echo "Ollama container already running: $OLLAMA_CONTAINER"
       verify_ollama_gpu_passthrough
+      pull_model
+      verify_ollama_inference_device
       return 0
     fi
   else
@@ -491,7 +505,7 @@ wait_for_prism0() {
 print_access_info() {
   local gpu_note="GPU: disabled (CPU inference; GPU is enabled by default)"
   if gpu_enabled; then
-    gpu_note="GPU: ${OLLAMA_GPU} (target ~24 GiB VRAM for default model)"
+    gpu_note="GPU: ${OLLAMA_GPU} (default model targets ~24 GiB VRAM, 100% GPU)"
   fi
 
   cat <<EOF

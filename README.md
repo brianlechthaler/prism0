@@ -302,7 +302,7 @@ Quick start (GPU inference on a 24 GiB card, for example RTX 3090/4090):
 ./scripts/ollama-docker.sh start
 ```
 
-Open **http://localhost:8787**. The first run pulls the latest `ghcr.io/brianlechthaler/prism0` image and the default coding model (`qwen2.5-coder:32b` with GPU, `qwen2.5-coder:7b` on CPU), which can take several minutes. If the pull fails (for example `denied` from stale `ghcr.io` credentials), the script automatically builds from the local repo when run inside a clone.
+Open **http://localhost:8787**. The first run pulls the latest `ghcr.io/brianlechthaler/prism0` image and the default coding model (`qwen2.5-coder:14b` with GPU, `qwen2.5-coder:7b` on CPU), which can take several minutes. If the pull fails (for example `denied` from stale `ghcr.io` credentials), the script automatically builds from the local repo when run inside a clone.
 
 CPU-only inference (no GPU passthrough):
 
@@ -324,7 +324,7 @@ Useful environment overrides:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `OLLAMA_MODEL` | `qwen2.5-coder:32b` with GPU, `qwen2.5-coder:7b` on CPU | Explicitly set this to use another local Ollama model; 32b needs ~19-20 GiB VRAM |
+| `OLLAMA_MODEL` | `qwen2.5-coder:14b` with GPU, `qwen2.5-coder:7b` on CPU | Default GPU model runs 100% on GPU on a 24 GiB card; use `qwen2.5-coder:32b` only on 40+ GiB GPUs |
 | `OLLAMA_GPU` | `all` | Set to `0` or pass `--cpu` for CPU-only inference without GPU passthrough |
 | `OLLAMA_PORT` | `11434` | Host port for the Ollama API; auto-falls back to `11435` if `11434` is already taken (for example by a standalone `ollama` container) |
 | `PRISM0_PORT` | `8787` | Host port for the web UI |
@@ -336,7 +336,7 @@ Useful environment overrides:
 
 Ollama model files are stored in the Docker volume `prism0-ollama-data`. `./scripts/ollama-docker.sh stop` removes the containers but keeps that volume for faster restarts.
 
-If a standalone Ollama container already owns host port `11434`, the script maps `prism0-ollama` to `11435` instead. prism0 still reaches Ollama at `http://ollama:11434` on the shared Docker network. GPU is required by default; the script fails fast if NVIDIA Container Toolkit is missing or `--gpus` cannot be applied.
+If a standalone Ollama container already owns host port `11434`, the script maps `prism0-ollama` to `11435` instead. prism0 still reaches Ollama at `http://ollama:11434` on the shared Docker network. GPU is required by default; the script fails fast if NVIDIA Container Toolkit is missing, `--gpus` cannot be applied, or the model would spill over to CPU.
 
 See `./scripts/ollama-docker.sh --help` for the full option list.
 

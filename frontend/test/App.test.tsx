@@ -46,6 +46,10 @@ describe("GeneratorApp", () => {
     expect(screen.getByLabelText(/what should we build/i).tagName).toBe("TEXTAREA");
     expect(screen.getByLabelText(/model/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /back to prompt/i })).toHaveAttribute(
+      "href",
+      "#generator-prompt"
+    );
   });
 
   it("shows enabled picker loading and error hints", () => {

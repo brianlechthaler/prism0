@@ -225,7 +225,7 @@ jobs:
           ./scripts/ollama-docker.sh --help | grep -F "GPU acceleration is enabled by default"
           grep -q 'OLLAMA_GPU="${OLLAMA_GPU:-all}"' scripts/ollama-docker.sh
           grep -q 'OLLAMA_CPU_MODEL_DEFAULT="qwen2.5-coder:7b"' scripts/ollama-docker.sh
-          grep -q 'OLLAMA_GPU_MODEL_DEFAULT="qwen2.5-coder:32b"' scripts/ollama-docker.sh
+          grep -q 'OLLAMA_GPU_MODEL_DEFAULT="qwen2.5-coder:14b"' scripts/ollama-docker.sh
           grep -q 'resolve_model_settings' scripts/ollama-docker.sh
           grep -q -- '--cpu' scripts/ollama-docker.sh
 
