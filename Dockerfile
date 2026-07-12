@@ -1,13 +1,15 @@
+# syntax=docker/dockerfile:1
 FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
-RUN npm install -g npm@latest
+RUN npm install -g npm@10
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
-RUN npm ci --ignore-scripts \
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts \
   && node node_modules/opencode-ai/postinstall.mjs \
   && npm ci --prefix backend/validation-harness
 
@@ -26,13 +28,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8787
-RUN npm install -g npm@latest
+RUN npm install -g npm@10
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY backend/validation-harness/package.json backend/validation-harness/package-lock.json backend/validation-harness/
 COPY frontend/package.json frontend/package.json
-RUN npm ci --omit=dev --ignore-scripts \
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts \
   && node node_modules/opencode-ai/postinstall.mjs \
   && npm ci --prefix backend/validation-harness
 
