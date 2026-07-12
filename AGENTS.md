@@ -36,6 +36,7 @@ See `package.json` scripts and `README.md` for full detail:
 - **Tests do not need a real API key** — the backend mocks the LLM in Vitest.
 - **Automated tests enforce 100% coverage** on both workspaces; run `npm test` before pushing.
 - **`validation-harness`** is installed automatically via the backend `postinstall` script; generation runs ESLint + Vitest in isolated subprocess workspaces under `backend/validation-harness/runs/`.
+- **OpenCode config is embedded** — prism0 passes a standalone OpenCode provider config at runtime (custom `llm` provider with `@ai-sdk/openai-compatible` + model registry from `OPENAI_MODEL` / `OPENAI_MODELS`). No manual `~/.config/opencode/opencode.json` edits are required for Ollama or other OpenAI-compatible endpoints.
 - **SSE**: generation progress streams on `/api/generate/:runId/events`; keep long read timeouts when testing behind a proxy.
 - **Sandpack** (embedded preview) may fetch bundler assets from the public internet in the browser.
 

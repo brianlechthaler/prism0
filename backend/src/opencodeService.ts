@@ -2,7 +2,8 @@ import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/clie
 import { createOpencodeServer } from "@opencode-ai/sdk/server";
 import type { Config } from "@opencode-ai/sdk";
 import type { AssistantMessage, Part, ToolState } from "@opencode-ai/sdk/client";
-import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +62,96 @@ function workspaceRootDir(): string {
   return path.resolve(backendRootDir(), "..");
 }
 
+const OPENCODE_STUB_MARKER = "postinstall script was not run";
+
+export function resolveOpencodePackageDir(
+  exists: (targetPath: string) => boolean = existsSync
+): string {
+  const candidates = [
+    path.join(workspaceRootDir(), "node_modules", "opencode-ai"),
+    path.join(backendRootDir(), "node_modules", "opencode-ai")
+  ];
+  for (const candidate of candidates) {
+    if (exists(path.join(candidate, "postinstall.mjs"))) {
+      return candidate;
+    }
+  }
+  return candidates[0];
+}
+
+export function resolveOpencodeBinaryPath(
+  exists: (targetPath: string) => boolean = existsSync
+): string {
+  return path.join(resolveOpencodePackageDir(exists), "bin", "opencode.exe");
+}
+
+export function isOpencodeStub(
+  binaryPath: string,
+  readFile: (targetPath: string, options: { encoding: "utf8" }) => string = (targetPath, options) =>
+    readFileSync(targetPath, options)
+): boolean {
+  try {
+    return readFile(binaryPath, { encoding: "utf8" }).includes(OPENCODE_STUB_MARKER);
+  } catch {
+    return true;
+  }
+}
+
+type OpencodeBinaryDeps = {
+  spawnSync: typeof spawnSync;
+  readFile: (targetPath: string, encoding: "utf8") => string;
+  execPath: string;
+  exists: (targetPath: string) => boolean;
+  waitBeforeInstall?: () => Promise<void>;
+};
+
+function defaultOpencodeBinaryDeps(): OpencodeBinaryDeps {
+  return {
+    spawnSync,
+    readFile: (targetPath, encoding) => readFileSync(targetPath, encoding),
+    execPath: process.execPath,
+    exists: existsSync
+  };
+}
+
+let opencodeInstallPromise: Promise<void> | null = null;
+
+export async function ensureOpencodeBinary(deps: OpencodeBinaryDeps = defaultOpencodeBinaryDeps()): Promise<void> {
+  const binaryPath = resolveOpencodeBinaryPath(deps.exists);
+  if (!isOpencodeStub(binaryPath, (targetPath) => deps.readFile(targetPath, "utf8"))) {
+    return;
+  }
+
+  if (!opencodeInstallPromise) {
+    opencodeInstallPromise = (async () => {
+      if (deps.waitBeforeInstall) {
+        await deps.waitBeforeInstall();
+      }
+      installOpencodeBinary(deps);
+    })().finally(() => {
+      opencodeInstallPromise = null;
+    });
+  }
+  await opencodeInstallPromise;
+}
+
+export function installOpencodeBinary(deps: OpencodeBinaryDeps = defaultOpencodeBinaryDeps()): void {
+  const postinstall = path.join(resolveOpencodePackageDir(deps.exists), "postinstall.mjs");
+  const binaryPath = resolveOpencodeBinaryPath(deps.exists);
+  const result = deps.spawnSync(deps.execPath, [postinstall], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      result.stderr?.trim() || result.stdout?.trim() || "Failed to install the OpenCode CLI binary"
+    );
+  }
+  if (isOpencodeStub(binaryPath, (targetPath) => deps.readFile(targetPath, "utf8"))) {
+    throw new Error("OpenCode CLI binary is still missing after running postinstall");
+  }
+}
+
 export function resolveOpencodeBinDir(
   exists: (targetPath: string) => boolean = existsSync
 ): string {
@@ -87,11 +178,36 @@ export function ensureOpencodeOnPath(env: NodeJS.ProcessEnv = process.env): Node
   return { ...env, [pathKey]: `${binDir}${path.delimiter}${current}` };
 }
 
+const OPENCODE_PROVIDER_ID = "llm";
+const OPENCODE_OPENAI_PROVIDER_NPM = "@ai-sdk/openai-compatible";
+
+export function buildOpencodeModelRegistry(config: AppConfig): NonNullable<Config["provider"]>[string]["models"] {
+  const models = new Set([config.openaiModel, ...config.openaiModels]);
+  const outputLimit = Math.min(16_384, Math.floor(config.contextWindowTokens / 4));
+  const registry: NonNullable<Config["provider"]>[string]["models"] = {};
+
+  for (const model of models) {
+    registry[model] = {
+      id: model,
+      name: model,
+      tool_call: true,
+      limit: {
+        context: config.contextWindowTokens,
+        output: outputLimit
+      }
+    };
+  }
+
+  return registry;
+}
+
 export function buildOpencodeConfig(config: AppConfig): Config {
   return {
-    model: `openai/${config.openaiModel}`,
+    model: `${OPENCODE_PROVIDER_ID}/${config.openaiModel}`,
     provider: {
-      openai: {
+      [OPENCODE_PROVIDER_ID]: {
+        npm: OPENCODE_OPENAI_PROVIDER_NPM,
+        models: buildOpencodeModelRegistry(config),
         options: {
           apiKey: config.openaiApiKey,
           baseURL: config.openaiBaseUrl,
@@ -99,7 +215,7 @@ export function buildOpencodeConfig(config: AppConfig): Config {
         }
       }
     },
-    enabled_providers: ["openai"],
+    enabled_providers: [OPENCODE_PROVIDER_ID],
     disabled_providers: []
   };
 }
@@ -109,6 +225,8 @@ function configCacheKey(config: AppConfig): string {
     config.openaiApiKey,
     config.openaiBaseUrl,
     config.openaiModel,
+    config.openaiModels.join("\n"),
+    config.contextWindowTokens,
     config.requestTimeoutMs
   ].join("\0");
 }
@@ -121,7 +239,7 @@ export function parseOpencodeModel(model: string): { providerID: string; modelID
       modelID: model.slice(slash + 1)
     };
   }
-  return { providerID: "openai", modelID: model };
+  return { providerID: OPENCODE_PROVIDER_ID, modelID: model };
 }
 
 export function getModelCandidates(config: AppConfig, selectedModel?: string): string[] {
@@ -196,6 +314,7 @@ export async function getOpencodeClient(config: AppConfig): Promise<OpencodeClie
     process.env.PATH = env.PATH;
   }
   try {
+    await ensureOpencodeBinary();
     activeServer = await startOpencodeServer(config);
     activeClient = createOpencodeClient({ baseUrl: activeServer.url });
     activeConfigKey = cacheKey;
