@@ -202,7 +202,8 @@ async function validateProjectWithRetries(
           store.appendLog(runId, `[${timestamp()}] [validation] ${line}`);
         },
         undefined,
-        signal
+        signal,
+        config
       );
       return { project: currentProject, idea: currentIdea, contextState: currentContextState };
     } catch (error) {
