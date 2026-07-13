@@ -74,4 +74,24 @@ describe("GeneratorApp ready-state preview errors", () => {
       );
     });
   });
+
+  it("ignores preview runtime errors from other origins", async () => {
+    renderWithRouter(<GeneratorApp />);
+    expect(await screen.findByTestId("editor-preview")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://evil.example",
+          data: {
+            type: "prism0-preview-error",
+            runId: "r1",
+            message: "should be ignored"
+          }
+        })
+      );
+    });
+
+    expect(screen.queryByText(/generated app has an error/i)).not.toBeInTheDocument();
+  });
 });

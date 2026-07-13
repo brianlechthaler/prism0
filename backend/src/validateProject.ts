@@ -183,7 +183,7 @@ export async function runSandboxedValidationCommand(
     let stderr = "";
     const onAbort = (): void => {
       child.kill("SIGTERM");
-      reject(new RunStoppedError("Validation aborted"));
+      reject(new RunStoppedError());
     };
 
     if (signal) {

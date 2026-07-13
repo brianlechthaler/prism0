@@ -4,7 +4,7 @@ import type { AuthenticatedRequest } from "./authMiddleware.js";
 import { requireAuth, requireVerifiedEmail } from "./authMiddleware.js";
 import { ProjectError, type ProjectStore } from "./projectStore.js";
 import type { RunStore } from "./runStore.js";
-import { assertRunAccess, requestUserId } from "./runAccess.js";
+import { assertRunAccess } from "./runAccess.js";
 import { routeParam } from "./routes.js";
 
 const PublishSchema = z.object({
@@ -199,7 +199,7 @@ function registerAuthenticatedProjectRoutes(
 function registerManageProjectRoutes(
   app: Express,
   projects: ProjectStore,
-  authEnabled: boolean
+  _authEnabled: boolean
 ): void {
   const manageRateLimit = createManageRateLimitGuard();
 
@@ -285,7 +285,8 @@ function registerManageProjectRoutes(
 }
 
 function toPublicHostedProject(project: import("./projectStore.js").HostedProject) {
-  const { editToken: _editToken, ...publicProject } = project;
+  const { editToken, ...publicProject } = project;
+  void editToken;
   return publicProject;
 }
 

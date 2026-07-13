@@ -21,7 +21,7 @@ describe("registerRoutes", () => {
 
   it("rejects invalid generate payloads", async () => {
     const { app } = createTestApp();
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -52,7 +52,7 @@ describe("registerRoutes", () => {
       openaiModels: ["primary", "fallback"]
     });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/models`, { headers: authHeaders(cookie) });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
@@ -72,7 +72,7 @@ describe("registerRoutes", () => {
       openaiModels: ["primary", "fallback"]
     });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/models`, { headers: authHeaders(cookie) });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
@@ -101,7 +101,7 @@ describe("registerRoutes", () => {
 
   it("returns 404 for missing downloads", async () => {
     const { app } = createTestApp();
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/project/missing/download`, {
         headers: authHeaders(cookie)
       });
@@ -192,7 +192,7 @@ describe("registerRoutes", () => {
 
   it("returns 404 for missing event streams", async () => {
     const { app } = createTestApp();
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/events`, {
         headers: authHeaders(cookie)
       });
@@ -287,7 +287,7 @@ describe("registerRoutes", () => {
       openaiModels: ["m", "fallback"]
     });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -313,7 +313,7 @@ describe("registerRoutes", () => {
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp(new RunStore(), { ...config, yoloModeEnabled: true });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -336,7 +336,7 @@ describe("registerRoutes", () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -369,7 +369,7 @@ describe("registerRoutes", () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp();
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -384,7 +384,7 @@ describe("registerRoutes", () => {
     vi.spyOn(await import("../src/generator.js"), "runGeneration").mockResolvedValue(undefined);
     const { app } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -403,7 +403,7 @@ describe("registerRoutes", () => {
       generationRateLimitWindowMs: 60_000
     });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const body = JSON.stringify({ idea: "make a tiny app" });
       const first = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
@@ -518,7 +518,7 @@ describe("registerRoutes", () => {
   it("returns 404 for missing follow-up source runs", async () => {
     const { app } = createTestApp();
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/follow-up`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -579,7 +579,7 @@ describe("registerRoutes", () => {
   it("returns 404 for missing runtime repair source runs", async () => {
     const { app } = createTestApp();
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -678,7 +678,7 @@ describe("registerRoutes", () => {
   it("returns 404 for missing validation repair source runs", async () => {
     const { app } = createTestApp();
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/missing/validation-fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -777,7 +777,7 @@ describe("registerRoutes", () => {
       return Promise.resolve();
     });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -792,7 +792,7 @@ describe("registerRoutes", () => {
       return Promise.resolve();
     });
 
-    await withAuthedServer(app, async (port, { cookie, userId }) => {
+    await withAuthedServer(app, async (port, { cookie }) => {
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
