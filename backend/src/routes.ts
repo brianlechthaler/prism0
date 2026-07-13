@@ -1,4 +1,4 @@
-import type { Express, Request, RequestHandler } from "express";
+import type { Express, Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 import type { AuthenticatedRequest } from "./authMiddleware.js";
 import { createAuthGuard } from "./authMiddleware.js";
@@ -13,6 +13,8 @@ import {
   runRuntimeRepair,
   runValidationRepair
 } from "./generator.js";
+import type { ProjectStore } from "./projectStore.js";
+import { assertRunAccess, requestUserId, validateProjectOwnership } from "./runAccess.js";
 import type { RunStore } from "./runStore.js";
 import type { GenerationRun, GeneratedProject } from "./types.js";
 
@@ -45,6 +47,7 @@ const GenerateBodySchemaWithProject = GenerateBodySchema.extend({
 
 export type RouteServices = {
   history: GenerationHistoryService;
+  projects: ProjectStore;
 };
 
 export function registerRoutes(
@@ -54,7 +57,7 @@ export function registerRoutes(
   services: RouteServices
 ): void {
   const generationGuard = createGenerationGuard(config, store);
-  const authRequired = createAuthGuard(config.authEnabled);
+  const authRequired = createAuthGuard(config.authEnabled, config.authEmailEnabled);
 
   app.get("/api/models", authRequired, (_req, res) => {
     res.json({
@@ -85,7 +88,10 @@ export function registerRoutes(
     }
 
     const user = (req as AuthenticatedRequest).user;
-    const run = store.create(parsed.data.idea);
+    const userId = requestUserId(req as AuthenticatedRequest);
+    if (!validateProjectOwnership(services.projects, parsed.data.projectId, user, res)) return;
+
+    const run = store.create(parsed.data.idea, userId);
     const historyHooks = startGenerationHistory(
       services.history,
       user,
@@ -102,11 +108,14 @@ export function registerRoutes(
   });
 
   app.post("/api/generate/:runId/follow-up", authRequired, generationGuard, (req, res) => {
-    const sourceRun = store.get(routeParam(req.params.runId));
-    if (!sourceRun) {
-      res.status(404).send("Run not found");
-      return;
-    }
+    const sourceRun = assertRunAccess(
+      store,
+      routeParam(req.params.runId),
+      config.authEnabled,
+      requestUserId(req as AuthenticatedRequest),
+      res
+    );
+    if (!sourceRun) return;
 
     if (sourceRun.status !== "done" || Object.keys(sourceRun.files).length === 0) {
       res.status(409).send("Project is not ready for follow-up changes");
@@ -132,8 +141,11 @@ export function registerRoutes(
     }
 
     const user = (req as AuthenticatedRequest).user;
+    const userId = requestUserId(req as AuthenticatedRequest);
+    if (!validateProjectOwnership(services.projects, parsed.data.projectId, user, res)) return;
+
     const followUpIdea = `${sourceRun.idea}\n\nFollow-up request: ${parsed.data.prompt}`;
-    const run = store.create(followUpIdea);
+    const run = store.create(followUpIdea, userId);
     const historyHooks = startGenerationHistory(
       services.history,
       user,
@@ -156,11 +168,14 @@ export function registerRoutes(
   });
 
   app.post("/api/generate/:runId/fix", authRequired, generationGuard, (req, res) => {
-    const sourceRun = store.get(routeParam(req.params.runId));
-    if (!sourceRun) {
-      res.status(404).send("Run not found");
-      return;
-    }
+    const sourceRun = assertRunAccess(
+      store,
+      routeParam(req.params.runId),
+      config.authEnabled,
+      requestUserId(req as AuthenticatedRequest),
+      res
+    );
+    if (!sourceRun) return;
 
     if (!isRepairableSourceRun(sourceRun)) {
       res.status(409).send("Project is not ready to repair");
@@ -180,7 +195,8 @@ export function registerRoutes(
     }
 
     const user = (req as AuthenticatedRequest).user;
-    const run = store.create(sourceRun.idea);
+    const userId = requestUserId(req as AuthenticatedRequest);
+    const run = store.create(sourceRun.idea, userId);
     const historyHooks = startGenerationHistory(services.history, user, run.id, sourceRun.idea);
     store.attachAbortController(run.id);
     void runRuntimeRepair(
@@ -197,11 +213,14 @@ export function registerRoutes(
   });
 
   app.post("/api/generate/:runId/validation-fix", authRequired, generationGuard, (req, res) => {
-    const sourceRun = store.get(routeParam(req.params.runId));
-    if (!sourceRun) {
-      res.status(404).send("Run not found");
-      return;
-    }
+    const sourceRun = assertRunAccess(
+      store,
+      routeParam(req.params.runId),
+      config.authEnabled,
+      requestUserId(req as AuthenticatedRequest),
+      res
+    );
+    if (!sourceRun) return;
 
     if (!isRepairableSourceRun(sourceRun)) {
       res.status(409).send("Project is not ready to repair");
@@ -221,7 +240,8 @@ export function registerRoutes(
     }
 
     const user = (req as AuthenticatedRequest).user;
-    const run = store.create(sourceRun.idea);
+    const userId = requestUserId(req as AuthenticatedRequest);
+    const run = store.create(sourceRun.idea, userId);
     const historyHooks = startGenerationHistory(services.history, user, run.id, sourceRun.idea);
     store.attachAbortController(run.id);
     void runValidationRepair(
@@ -239,9 +259,7 @@ export function registerRoutes(
 
   app.post("/api/generate/:runId/stop", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
-    const run = store.get(runId);
-    if (!run) {
-      res.status(404).send("Run not found");
+    if (!assertRunAccess(store, runId, config.authEnabled, requestUserId(req as AuthenticatedRequest), res)) {
       return;
     }
 
@@ -255,9 +273,7 @@ export function registerRoutes(
 
   app.post("/api/generate/:runId/pause", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
-    const run = store.get(runId);
-    if (!run) {
-      res.status(404).send("Run not found");
+    if (!assertRunAccess(store, runId, config.authEnabled, requestUserId(req as AuthenticatedRequest), res)) {
       return;
     }
 
@@ -271,9 +287,7 @@ export function registerRoutes(
 
   app.post("/api/generate/:runId/resume", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
-    const run = store.get(runId);
-    if (!run) {
-      res.status(404).send("Run not found");
+    if (!assertRunAccess(store, runId, config.authEnabled, requestUserId(req as AuthenticatedRequest), res)) {
       return;
     }
 
@@ -288,9 +302,7 @@ export function registerRoutes(
 
   app.get("/api/generate/:runId/events", authRequired, (req, res) => {
     const runId = routeParam(req.params.runId);
-    const run = store.get(runId);
-    if (!run) {
-      res.status(404).send("Run not found");
+    if (!assertRunAccess(store, runId, config.authEnabled, requestUserId(req as AuthenticatedRequest), res)) {
       return;
     }
 
@@ -312,8 +324,16 @@ export function registerRoutes(
   });
 
   app.get("/api/project/:runId/download", authRequired, (req, res) => {
-    const run = store.get(routeParam(req.params.runId));
-    if (!run || run.status !== "done") {
+    const runId = routeParam(req.params.runId);
+    const run = assertRunAccess(
+      store,
+      runId,
+      config.authEnabled,
+      requestUserId(req as AuthenticatedRequest),
+      res
+    );
+    if (!run) return;
+    if (run.status !== "done") {
       res.status(404).send("Project not ready");
       return;
     }

@@ -11,6 +11,10 @@ import {
 import type { GenerationState } from "../src/hooks/useGeneration";
 import { renderWithRouter } from "./helpers";
 
+function previewMessageEvent(data: unknown, origin = window.location.origin): MessageEvent {
+  return new MessageEvent("message", { data, origin });
+}
+
 const mocks = vi.hoisted(() => ({
   repair: vi.fn(),
   repairValidation: vi.fn(),
@@ -167,7 +171,7 @@ describe("GeneratorApp error state", () => {
         { type: PREVIEW_ERROR_MESSAGE_TYPE, runId: "r1", message: 1 },
         { type: PREVIEW_ERROR_MESSAGE_TYPE, runId: "stale", message: "boom" }
       ]) {
-        window.dispatchEvent(new MessageEvent("message", { data }));
+        window.dispatchEvent(previewMessageEvent(data));
       }
     });
 
@@ -189,16 +193,14 @@ describe("GeneratorApp error state", () => {
     renderWithRouter(<GeneratorApp />);
     act(() => {
       window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: PREVIEW_ERROR_MESSAGE_TYPE,
-            runId: "r1",
-            message: "ReferenceError: count is not defined",
-            stack: "ReferenceError: count is not defined\n    at index.js:1:1",
-            filename: "index.js",
-            lineno: 1,
-            colno: 1
-          }
+        previewMessageEvent({
+          type: PREVIEW_ERROR_MESSAGE_TYPE,
+          runId: "r1",
+          message: "ReferenceError: count is not defined",
+          stack: "ReferenceError: count is not defined\n    at index.js:1:1",
+          filename: "index.js",
+          lineno: 1,
+          colno: 1
         })
       );
     });

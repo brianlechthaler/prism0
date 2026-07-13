@@ -5,6 +5,7 @@ import {
   resolveExecuteCommand,
   resolveValidationOrchestration,
   runOpencodeValidationCommand,
+  runSandboxedValidationCommand,
   validateGeneratedProject,
   type ValidationDeps
 } from "../src/validateProject.js";
@@ -159,7 +160,7 @@ describe("resolveValidationOrchestration", () => {
     const deps = createDeps();
     const resolved = resolveValidationOrchestration(deps);
     expect(resolved.copyConfigs).toBe(copyHarnessConfigs);
-    expect(resolved.execute).toBe(runOpencodeValidationCommand);
+    expect(resolved.execute).toBe(runSandboxedValidationCommand);
   });
 });
 
@@ -313,6 +314,55 @@ describe("runOpencodeValidationCommand", () => {
     await expect(runOpencodeValidationCommand("echo hi", "/tmp", () => {}, config)).rejects.toThrow(
       /plain failure/
     );
+  });
+
+  it("runs sandboxed shell commands with filtered environment", async () => {
+    const logs: string[] = [];
+    const result = await runSandboxedValidationCommand(
+      `${process.execPath} -e "console.log('sandbox-ok')"`,
+      process.cwd(),
+      (line) => logs.push(line)
+    );
+    expect(result).toContain("sandbox-ok");
+    expect(logs.join("\n")).toContain("sandbox-ok");
+  });
+
+  it("rejects aborted sandboxed shell commands", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runSandboxedValidationCommand("sleep 5", process.cwd(), () => {}, undefined, controller.signal)
+    ).rejects.toThrow(/stopped/i);
+  });
+
+  it("aborts in-flight sandboxed shell commands", async () => {
+    const controller = new AbortController();
+    const promise = runSandboxedValidationCommand(
+      process.platform === "win32" ? "timeout /t 5" : "sleep 2",
+      process.cwd(),
+      () => {},
+      undefined,
+      controller.signal
+    );
+    setTimeout(() => controller.abort(), 50);
+    await expect(promise).rejects.toThrow(/stopped/i);
+  });
+
+  it("captures stderr output from sandboxed shell commands", async () => {
+    const logs: string[] = [];
+    const result = await runSandboxedValidationCommand(
+      `${process.execPath} -e "console.error('stderr-only')"`,
+      process.cwd(),
+      (line) => logs.push(line)
+    );
+    expect(result).toContain("stderr-only");
+    expect(logs.join("\n")).toContain("stderr-only");
+  });
+
+  it("rejects sandboxed shell commands that exit non-zero", async () => {
+    await expect(
+      runSandboxedValidationCommand(`${process.execPath} -e "process.exit(2)"`, process.cwd(), () => {})
+    ).rejects.toThrow(/exit 2/);
   });
 });
 

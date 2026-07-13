@@ -1,21 +1,28 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
+
+const scryptAsync = promisify(scrypt);
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1 };
 
-export function hashPassword(password: string): string {
+export function hashSessionToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const hash = scryptSync(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTIONS);
+  const hash = (await scryptAsync(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTIONS)) as Buffer;
   return `${salt.toString("hex")}:${hash.toString("hex")}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return false;
   const salt = Buffer.from(saltHex, "hex");
   const expected = Buffer.from(hashHex, "hex");
-  const actual = scryptSync(password, salt, expected.length, SCRYPT_OPTIONS);
-  if (actual.length !== expected.length) return false;
+  if (expected.length !== SCRYPT_KEYLEN) return false;
+  const actual = (await scryptAsync(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTIONS)) as Buffer;
   return timingSafeEqual(actual, expected);
 }
 

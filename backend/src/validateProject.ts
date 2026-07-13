@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { AppConfig } from "./config.js";
 import { normalizeProjectFiles, resolveProjectFilePath } from "./fileSafety.js";
@@ -44,7 +45,7 @@ export function resolveValidationOrchestration(deps: ValidationDeps) {
 }
 
 export function resolveExecuteCommand(deps: ValidationDeps) {
-  return deps.execute ?? runOpencodeValidationCommand;
+  return deps.execute ?? runSandboxedValidationCommand;
 }
 
 export async function validateGeneratedProject(
@@ -158,6 +159,68 @@ export async function copyHarnessConfigs(
 
   await deps.fs.symlink(modulesPath, targetModules, "dir");
   onLog("Linked validation harness node_modules");
+}
+
+export async function runSandboxedValidationCommand(
+  command: string,
+  cwd: string,
+  onLog: (line: string) => void,
+  _config: AppConfig,
+  signal?: AbortSignal
+): Promise<string> {
+  throwIfAborted(signal);
+  const env = createValidationEnv(process.env);
+
+  return await new Promise<string>((resolve, reject) => {
+    const child = spawn(command, {
+      cwd,
+      env: { ...env },
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let stdout = "";
+    let stderr = "";
+    const onAbort = (): void => {
+      child.kill("SIGTERM");
+      reject(new RunStoppedError("Validation aborted"));
+    };
+
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      stdout += text;
+      for (const line of text.split(/\r?\n/).filter(Boolean)) {
+        onLog(line);
+      }
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      stderr += text;
+      for (const line of text.split(/\r?\n/).filter(Boolean)) {
+        onLog(line);
+      }
+    });
+
+    child.on("error", (error) => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      const output = stdout || stderr;
+      if (code === 0) {
+        resolve(output);
+        return;
+      }
+      reject(new Error(`Command failed (${command}), exit ${code ?? "unknown"}:\n${output || stderr}`));
+    });
+  });
 }
 
 export async function runOpencodeValidationCommand(

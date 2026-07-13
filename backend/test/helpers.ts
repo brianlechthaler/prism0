@@ -79,9 +79,9 @@ export function createTestApp(
   app.use(express.json());
   app.use(createAuthMiddleware(services.auth));
   registerAuthRoutes(app, services.auth, services.projects, services.history, config);
-  registerProjectRoutes(app, services.projects, store, config.authEnabled);
+  registerProjectRoutes(app, services.projects, store, config.authEnabled, config.authEmailEnabled);
   registerHostingRoutes(app, services.projects);
-  registerRoutes(app, config, store, { history: services.history });
+  registerRoutes(app, config, store, { history: services.history, projects: services.projects });
   return { app, store, services };
 }
 
@@ -124,7 +124,7 @@ export function removeDatabase(pathname: string): void {
 export async function registerAndLogin(
   port: number,
   username = "tester",
-  password = "password123"
+  password = "securepass12"
 ): Promise<{ cookie: string; userId: string }> {
   const registerRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
     method: "POST",

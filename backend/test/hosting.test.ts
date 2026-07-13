@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RunStore } from "../src/runStore.js";
-import { contentTypeForFile, hostingRequestFromWildcard, normalizeHostedPath, routeParam, routeWildcard } from "../src/hosting.js";
+import { contentTypeForFile, hostingClientKey, hostingRequestFromWildcard, normalizeHostedPath, routeParam, routeWildcard } from "../src/hosting.js";
 import { createTestApp, withAuthedServer, withServer } from "./helpers.js";
 
 function jsonHeaders(cookie: string): Record<string, string> {
@@ -40,6 +40,14 @@ describe("hosting helpers", () => {
     expect(routeParam("value")).toBe("value");
   });
 
+  it("derives client keys from request metadata", () => {
+    expect(hostingClientKey({ ip: "1.2.3.4", socket: {} } as import("express").Request)).toBe("1.2.3.4");
+    expect(
+      hostingClientKey({ socket: { remoteAddress: "10.0.0.2" } } as import("express").Request)
+    ).toBe("10.0.0.2");
+    expect(hostingClientKey({ socket: {} } as import("express").Request)).toBe("unknown");
+  });
+
   it("derives hosted wildcard requests", () => {
     expect(hostingRequestFromWildcard("")).toEqual({ requestedFile: "index.html", countView: true });
     expect(hostingRequestFromWildcard("index.html")).toEqual({
@@ -61,14 +69,14 @@ describe("hosting routes", () => {
   it("serves hosted project files, redirects, and tracks page views", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("hosted app");
-    store.complete(run.id, {
-      "index.html": "<html>home</html>",
-      "assets/app.js": "console.log('hi')",
-      "styles/app.css": "body { color: red; }"
-    });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("hosted app", userId);
+      store.complete(run.id, {
+        "index.html": "<html>home</html>",
+        "assets/app.js": "console.log('hi')",
+        "styles/app.css": "body { color: red; }"
+      });
       const publishRes = await fetch(`http://127.0.0.1:${port}/api/projects`, {
         method: "POST",
         headers: jsonHeaders(cookie),
@@ -99,7 +107,7 @@ describe("hosting routes", () => {
 
       const manageRes = await fetch(`http://127.0.0.1:${port}/api/projects`, { headers: jsonHeaders(cookie) });
       const listed = (await manageRes.json()) as { projects: Array<{ pageViews: number }> };
-      expect(listed.projects[0]?.pageViews).toBe(2);
+      expect(listed.projects[0]?.pageViews).toBe(1);
     });
   });
 
@@ -129,13 +137,13 @@ describe("hosting routes", () => {
   it("serves nested hosted paths without counting asset requests as page views", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("nested hosted");
-    store.complete(run.id, {
-      "index.html": "<html>home</html>",
-      "leading-slash.html": "<html>leading</html>"
-    });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("nested hosted", userId);
+      store.complete(run.id, {
+        "index.html": "<html>home</html>",
+        "leading-slash.html": "<html>leading</html>"
+      });
       const publishRes = await fetch(`http://127.0.0.1:${port}/api/projects`, {
         method: "POST",
         headers: jsonHeaders(cookie),
@@ -160,10 +168,10 @@ describe("hosting routes", () => {
   it("returns file not found when index.html is unavailable", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("no index");
-    store.complete(run.id, { "readme.txt": "hello" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("no index", userId);
+      store.complete(run.id, { "readme.txt": "hello" });
       const publishRes = await fetch(`http://127.0.0.1:${port}/api/projects`, {
         method: "POST",
         headers: jsonHeaders(cookie),

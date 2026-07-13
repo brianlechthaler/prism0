@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import path from "node:path";
 import type { ProjectStore } from "./projectStore.js";
+import { hostedContentSecurityPolicy } from "./security.js";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -27,6 +28,9 @@ export function hostingRequestFromWildcard(file: string | string[] | undefined):
     countView: wildcard === "" || wildcard === "index.html"
   };
 }
+
+const PAGE_VIEW_WINDOW_MS = 60_000;
+const pageViewBuckets = new Map<string, number>();
 
 export function registerHostingRoutes(app: Express, projects: ProjectStore): void {
   app.get("/h/:slug", (req, res) => serveHostedFile(req, res, projects, "index.html", true));
@@ -67,14 +71,30 @@ function serveHostedFile(
     return;
   }
 
-  if (countView) {
+  if (countView && shouldRecordPageView(slug, hostingClientKey(req))) {
     projects.recordPageView(project.id);
   }
 
   res.setHeader("Content-Type", contentTypeForFile(normalized));
   res.setHeader("Cache-Control", "public, max-age=60");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Content-Security-Policy", hostedContentSecurityPolicy());
   res.send(content);
+}
+
+export function hostingClientKey(req: Pick<Request, "ip" | "socket">): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function shouldRecordPageView(slug: string, clientKey: string): boolean {
+  const key = `${clientKey}:${slug}`;
+  const now = Date.now();
+  const lastSeen = pageViewBuckets.get(key);
+  if (lastSeen && now - lastSeen < PAGE_VIEW_WINDOW_MS) {
+    return false;
+  }
+  pageViewBuckets.set(key, now);
+  return true;
 }
 
 export function normalizeHostedPath(filePath: string): string {

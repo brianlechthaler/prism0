@@ -24,9 +24,14 @@ const usage: RunUsageMetrics = {
 describe("RunStore", () => {
   it("creates and retrieves runs", () => {
     const store = new RunStore();
-    const run = store.create("make chess");
+    const run = store.create("make chess", "user-1");
     expect(run.idea).toBe("make chess");
     expect(store.get(run.id)?.status).toBe("pending");
+    expect(store.isOwnedBy(run.id, "user-1")).toBe(true);
+    expect(store.isOwnedBy(run.id, "user-2")).toBe(false);
+    expect(store.isOwnedBy(run.id, undefined)).toBe(false);
+    expect(store.isOwnedBy("missing-run", "user-1")).toBe(false);
+    expect(store.getOwnerUserId(run.id)).toBe("user-1");
   });
 
   it("persists project summary on completion", () => {

@@ -29,7 +29,8 @@ const EnvSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
   AUTH_LOGIN_MAX_FAILURES: z.coerce.number().int().positive().optional(),
   AUTH_LOGIN_LOCKOUT_MS: z.coerce.number().int().positive().optional(),
-  AUTH_EMAIL_ENABLED: BooleanEnvSchema.optional()
+  AUTH_EMAIL_ENABLED: BooleanEnvSchema.optional(),
+  AUTH_ENABLED: BooleanEnvSchema.optional()
 });
 
 export function formatConfigIssues(
@@ -112,7 +113,10 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
 
   const openaiModel = parsed.data.OPENAI_MODEL ?? "gpt-4.1-mini";
   const modelPickerEnabled = cli.modelPickerEnabled ?? false;
-  const yoloModeEnabled = cli.yoloModeEnabled ?? true;
+  const isProduction = process.env.NODE_ENV === "production";
+  const yoloModeEnabled = cli.yoloModeEnabled ?? !isProduction;
+  const authEnabled =
+    cli.authEnabled ?? parsed.data.AUTH_ENABLED ?? isProduction;
 
   return {
     openaiApiKey: parsed.data.OPENAI_API_KEY,
@@ -144,7 +148,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, cli: CliArgs = {}): AppConfig
     authLoginMaxFailures: parsed.data.AUTH_LOGIN_MAX_FAILURES ?? 5,
     authLoginLockoutMs: parsed.data.AUTH_LOGIN_LOCKOUT_MS ?? 15 * 60 * 1000,
     authEmailEnabled: parsed.data.AUTH_EMAIL_ENABLED ?? false,
-    authEnabled: cli.authEnabled ?? false
+    authEnabled
   };
 }
 

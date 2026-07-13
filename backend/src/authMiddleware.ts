@@ -2,6 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { AuthService, PublicUser } from "./auth.js";
 
 export const SESSION_COOKIE = "prism0_session";
+export const SESSION_COOKIE_PATH = "/api";
 
 export type AuthenticatedRequest = Request & {
   user?: PublicUser;
@@ -41,18 +42,53 @@ export function requireAuth(): RequestHandler {
   };
 }
 
-export function createAuthGuard(authEnabled: boolean): RequestHandler {
-  if (authEnabled) return requireAuth();
-  return (_req, _res, next) => next();
+export function requireVerifiedEmail(emailEnabled: boolean): RequestHandler {
+  return (req, res, next) => {
+    if (!emailEnabled) {
+      next();
+      return;
+    }
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
+      res.status(401).send("Authentication required");
+      return;
+    }
+    if (user.email && !user.emailVerified) {
+      res.status(403).send("Email address is not verified yet");
+      return;
+    }
+    next();
+  };
+}
+
+export function createAuthGuard(authEnabled: boolean, emailEnabled = false): RequestHandler {
+  if (!authEnabled) return (_req, _res, next) => next();
+
+  const handlers = [requireAuth(), requireVerifiedEmail(emailEnabled)];
+  return (req, res, next) => {
+    let index = 0;
+    const runNext = (): void => {
+      if (index >= handlers.length) {
+        next();
+        return;
+      }
+      handlers[index]!(req, res, () => {
+        index += 1;
+        runNext();
+      });
+    };
+    runNext();
+  };
 }
 
 export function setSessionCookie(res: Response, token: string, maxAgeMs: number): void {
   const secure = process.env.NODE_ENV === "production";
+  const sameSite = process.env.NODE_ENV === "production" ? "Strict" : "Lax";
   const parts = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "HttpOnly",
-    "Path=/",
-    "SameSite=Lax",
+    `Path=${SESSION_COOKIE_PATH}`,
+    `SameSite=${sameSite}`,
     `Max-Age=${Math.floor(maxAgeMs / 1000)}`
   ];
   if (secure) parts.push("Secure");
@@ -61,11 +97,12 @@ export function setSessionCookie(res: Response, token: string, maxAgeMs: number)
 
 export function clearSessionCookie(res: Response): void {
   const secure = process.env.NODE_ENV === "production";
+  const sameSite = process.env.NODE_ENV === "production" ? "Strict" : "Lax";
   const parts = [
     `${SESSION_COOKIE}=`,
     "HttpOnly",
-    "Path=/",
-    "SameSite=Lax",
+    `Path=${SESSION_COOKIE_PATH}`,
+    `SameSite=${sameSite}`,
     "Max-Age=0"
   ];
   if (secure) parts.push("Secure");

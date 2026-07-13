@@ -53,11 +53,11 @@ describe("RegisterPage", () => {
     expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "securepass12" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
-      expect(registerMock).toHaveBeenCalledWith("newbie", undefined, "password123");
+      expect(registerMock).toHaveBeenCalledWith("newbie", undefined, "securepass12");
       expect(navigateMock).toHaveBeenCalledWith("/login", {
         replace: true,
         state: { message: "Account created. Log in to continue." }
@@ -71,11 +71,11 @@ describe("RegisterPage", () => {
     renderWithRouter(<RegisterPage />);
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "securepass12" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
-      expect(registerMock).toHaveBeenCalledWith("newbie", undefined, "password123");
+      expect(registerMock).toHaveBeenCalledWith("newbie", undefined, "securepass12");
       expect(navigateMock).toHaveBeenCalledWith("/login", {
         replace: true,
         state: { message: "Account created. Log in to continue." }
@@ -90,11 +90,11 @@ describe("RegisterPage", () => {
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "new@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "securepass12" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => {
-      expect(registerMock).toHaveBeenCalledWith("newbie", "new@example.com", "password123");
+      expect(registerMock).toHaveBeenCalledWith("newbie", "new@example.com", "securepass12");
       expect(navigateMock).toHaveBeenCalledWith("/verify-email", {
         replace: true,
         state: { username: "newbie", verificationToken: "dev-token" }
@@ -109,7 +109,7 @@ describe("RegisterPage", () => {
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "new@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "securepass12" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText(/username taken/i)).toBeInTheDocument();
@@ -122,7 +122,7 @@ describe("RegisterPage", () => {
 
     fireEvent.change(screen.getByLabelText(/^username$/i), { target: { value: "newbie" } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "new@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "securepass12" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText("failed")).toBeInTheDocument();

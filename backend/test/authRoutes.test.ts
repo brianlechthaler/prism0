@@ -39,10 +39,11 @@ describe("authRoutes", () => {
   it("registers, verifies, logs in, and serves dashboard data", async () => {
     const store = new RunStore();
     const { app, services } = createTestApp(store);
-    const run = store.create("make app");
-    store.complete(run.id, { "index.html": "<html></html>" });
 
     await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("make app", userId);
+      store.complete(run.id, { "index.html": "<html></html>" });
+
       const me = await fetch(`http://127.0.0.1:${port}/api/auth/me`, { headers: jsonHeaders(cookie) });
       expect(me.status).toBe(200);
       expect((await me.json()).authenticated).toBe(true);
@@ -90,7 +91,7 @@ describe("authRoutes", () => {
       const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "tester", password: "password123" })
+        body: JSON.stringify({ username: "tester", password: "securepass12" })
       });
       expect(login.status).toBe(404);
 
@@ -107,7 +108,7 @@ describe("authRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "blocked_email", email: "blocked@example.com", password: "password123" })
+        body: JSON.stringify({ username: "blocked_email", email: "blocked@example.com", password: "securepass12" })
       });
       expect(res.status).toBe(400);
       expect(await res.text()).toContain("Email is not enabled");
@@ -120,14 +121,14 @@ describe("authRoutes", () => {
       const emptyEmailRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "empty_email_route", email: "", password: "password123" })
+        body: JSON.stringify({ username: "empty_email_route", email: "", password: "securepass12" })
       });
       expect(emptyEmailRes.status).toBe(201);
 
       const registerRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "no_email_route", password: "password123" })
+        body: JSON.stringify({ username: "no_email_route", password: "securepass12" })
       });
       expect(registerRes.status).toBe(201);
       const registerJson = (await registerRes.json()) as { user: { email: string | null; emailVerified: boolean } };
@@ -137,7 +138,7 @@ describe("authRoutes", () => {
       const loginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "no_email_route", password: "password123" })
+        body: JSON.stringify({ username: "no_email_route", password: "securepass12" })
       });
       expect(loginRes.status).toBe(200);
     });
@@ -165,7 +166,7 @@ describe("authRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "valid_user", email: "valid@example.com", password: "password123" })
+        body: JSON.stringify({ username: "valid_user", email: "valid@example.com", password: "securepass12" })
       });
       expect(res.status).toBe(500);
       expect(await res.text()).toBe("Authentication error");
@@ -185,14 +186,14 @@ describe("authRoutes", () => {
       const registerRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "unverified", email: "unverified@example.com", password: "password123" })
+        body: JSON.stringify({ username: "unverified", email: "unverified@example.com", password: "securepass12" })
       });
       expect(registerRes.status).toBe(201);
 
       const loginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "unverified", password: "password123" })
+        body: JSON.stringify({ username: "unverified", password: "securepass12" })
       });
       expect(loginRes.status).toBe(400);
       expect(await loginRes.text()).toContain("Invalid username or password");
@@ -253,7 +254,7 @@ describe("authRoutes", () => {
       const registerRes = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "verify_route", email: "verify_route@example.com", password: "password123" })
+        body: JSON.stringify({ username: "verify_route", email: "verify_route@example.com", password: "securepass12" })
       });
       const registerJson = (await registerRes.json()) as { verificationToken: string };
 
@@ -269,7 +270,7 @@ describe("authRoutes", () => {
       const freshRegister = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "verify_ok", email: "verify_ok@example.com", password: "password123" })
+        body: JSON.stringify({ username: "verify_ok", email: "verify_ok@example.com", password: "securepass12" })
       });
       const freshJson = (await freshRegister.json()) as { verificationToken: string };
       now += 1;
@@ -289,7 +290,7 @@ describe("authRoutes", () => {
       await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "resend_route", email: "resend_route@example.com", password: "password123" })
+        body: JSON.stringify({ username: "resend_route", email: "resend_route@example.com", password: "securepass12" })
       });
 
       const invalid = await fetch(`http://127.0.0.1:${port}/api/auth/resend-verification`, {
@@ -302,7 +303,7 @@ describe("authRoutes", () => {
       const resent = await fetch(`http://127.0.0.1:${port}/api/auth/resend-verification`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "resend_route", password: "password123" })
+        body: JSON.stringify({ username: "resend_route", password: "securepass12" })
       });
       expect(resent.status).toBe(200);
       expect((await resent.json()).verificationToken).toBeDefined();
@@ -329,14 +330,14 @@ describe("authRoutes", () => {
       const emailInvalid = await fetch(`http://127.0.0.1:${port}/api/auth/change-email`, {
         method: "POST",
         headers: jsonHeaders(cookie),
-        body: JSON.stringify({ email: "bad", password: "password123" })
+        body: JSON.stringify({ email: "bad", password: "securepass12" })
       });
       expect(emailInvalid.status).toBe(400);
 
       const email = await fetch(`http://127.0.0.1:${port}/api/auth/change-email`, {
         method: "POST",
         headers: jsonHeaders(cookie),
-        body: JSON.stringify({ email: "changed@example.com", password: "password123" })
+        body: JSON.stringify({ email: "changed@example.com", password: "securepass12" })
       });
       expect(email.status).toBe(200);
       expect(email.headers.get("set-cookie")).toContain("Max-Age=0");
@@ -344,14 +345,14 @@ describe("authRoutes", () => {
       const loginRes = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: `user${port}`, password: "password123" })
+        body: JSON.stringify({ username: `user${port}`, password: "securepass12" })
       });
       expect(loginRes.status).toBe(400);
 
       const verifyRes = await fetch(`http://127.0.0.1:${port}/api/auth/resend-verification`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: `user${port}`, password: "password123" })
+        body: JSON.stringify({ username: `user${port}`, password: "securepass12" })
       });
       const verifyJson = (await verifyRes.json()) as { verificationToken: string };
       await fetch(`http://127.0.0.1:${port}/api/auth/verify-email`, {
@@ -362,28 +363,28 @@ describe("authRoutes", () => {
       const relogin = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: `user${port}`, password: "password123" })
+        body: JSON.stringify({ username: `user${port}`, password: "securepass12" })
       });
       const reloginCookie = relogin.headers.get("set-cookie") ?? "";
 
       const passwordInvalid = await fetch(`http://127.0.0.1:${port}/api/auth/change-password`, {
         method: "POST",
         headers: jsonHeaders(reloginCookie),
-        body: JSON.stringify({ currentPassword: "password123", newPassword: "short" })
+        body: JSON.stringify({ currentPassword: "securepass12", newPassword: "short" })
       });
       expect(passwordInvalid.status).toBe(400);
 
       const password = await fetch(`http://127.0.0.1:${port}/api/auth/change-password`, {
         method: "POST",
         headers: jsonHeaders(reloginCookie),
-        body: JSON.stringify({ currentPassword: "password123", newPassword: "newpassword1" })
+        body: JSON.stringify({ currentPassword: "securepass12", newPassword: "newsecurepass1" })
       });
       expect(password.status).toBe(200);
 
       const loginAgain = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: `user${port}`, password: "newpassword1" })
+        body: JSON.stringify({ username: `user${port}`, password: "newsecurepass1" })
       });
       const finalCookie = loginAgain.headers.get("set-cookie") ?? "";
 
@@ -397,7 +398,7 @@ describe("authRoutes", () => {
       const deleted = await fetch(`http://127.0.0.1:${port}/api/auth/account`, {
         method: "DELETE",
         headers: jsonHeaders(finalCookie),
-        body: JSON.stringify({ password: "newpassword1" })
+        body: JSON.stringify({ password: "newsecurepass1" })
       });
       expect(deleted.status).toBe(200);
     });
@@ -432,7 +433,7 @@ describe("authRoutes", () => {
       const email = await fetch(`http://127.0.0.1:${port}/api/auth/change-email`, {
         method: "POST",
         headers: jsonHeaders(cookie),
-        body: JSON.stringify({ email: "broken@example.com", password: "password123" })
+        body: JSON.stringify({ email: "broken@example.com", password: "securepass12" })
       });
       expect(email.status).toBe(500);
 
@@ -442,7 +443,7 @@ describe("authRoutes", () => {
       const password = await fetch(`http://127.0.0.1:${port}/api/auth/change-password`, {
         method: "POST",
         headers: jsonHeaders(cookie),
-        body: JSON.stringify({ currentPassword: "password123", newPassword: "newpassword1" })
+        body: JSON.stringify({ currentPassword: "securepass12", newPassword: "newsecurepass1" })
       });
       expect(password.status).toBe(500);
 
@@ -459,7 +460,7 @@ describe("authRoutes", () => {
       const deleted = await fetch(`http://127.0.0.1:${port}/api/auth/account`, {
         method: "DELETE",
         headers: jsonHeaders(cookie),
-        body: JSON.stringify({ password: "password123" })
+        body: JSON.stringify({ password: "securepass12" })
       });
       expect(deleted.status).toBe(500);
     });
@@ -520,7 +521,7 @@ describe("authRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "any_user", password: "password123" })
+        body: JSON.stringify({ username: "any_user", password: "securepass12" })
       });
       expect(res.status).toBe(429);
       expect(res.headers.get("retry-after")).toBeNull();
@@ -568,7 +569,7 @@ describe("authRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "some_user", password: "password123" })
+        body: JSON.stringify({ username: "some_user", password: "securepass12" })
       });
       expect(res.status).toBe(400);
       expect(await res.text()).toBe("Account disabled");
@@ -590,7 +591,7 @@ describe("authRoutes", () => {
       await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "lockout_user", email: "lockout@example.com", password: "password123" })
+        body: JSON.stringify({ username: "lockout_user", email: "lockout@example.com", password: "securepass12" })
       });
 
       const fail1 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
@@ -625,14 +626,14 @@ describe("authRoutes", () => {
       const first = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "rate_user", email: "rate@example.com", password: "password123" })
+        body: JSON.stringify({ username: "rate_user", email: "rate@example.com", password: "securepass12" })
       });
       expect(first.status).toBe(201);
 
       const second = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "rate_user2", email: "rate2@example.com", password: "password123" })
+        body: JSON.stringify({ username: "rate_user2", email: "rate2@example.com", password: "securepass12" })
       });
       expect(second.status).toBe(429);
     });
@@ -645,7 +646,7 @@ describe("authRoutes", () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/auth/resend-verification`, {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ username: "verified_resend", password: "password123" })
+        body: JSON.stringify({ username: "verified_resend", password: "securepass12" })
       });
       expect(res.status).toBe(400);
       expect(await res.text()).toContain("already verified");
