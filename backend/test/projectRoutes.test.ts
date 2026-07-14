@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectError } from "../src/projectStore.js";
+import { createManageRateLimitGuard } from "../src/projectRoutes.js";
 import { RunStore } from "../src/runStore.js";
 import {
   createTestApp,
   registerAndLogin,
+  testConfig,
   withAuthedServer,
   withServer
 } from "./helpers.js";
@@ -34,11 +36,19 @@ describe("projectRoutes", () => {
     });
   });
 
+  it("does not register authenticated project routes when login is disabled", async () => {
+    const { app } = createTestApp(new RunStore(), { ...testConfig, authEnabled: false });
+    await withServer(app, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/projects`);
+      expect(res.status).toBe(404);
+    });
+  });
+
   it("publishes completed runs and rejects invalid or unfinished runs", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
       const invalid = await fetch(`http://127.0.0.1:${port}/api/projects`, {
         method: "POST",
         headers: jsonHeaders(cookie),
@@ -46,11 +56,11 @@ describe("projectRoutes", () => {
       });
       expect(invalid.status).toBe(400);
 
-      const pendingRun = store.create("pending");
+      const pendingRun = store.create("pending", userId);
       const notReady = await publishRun(port, cookie, pendingRun.id);
       expect(notReady.status).toBe(409);
 
-      const doneRun = store.create("done app");
+      const doneRun = store.create("done app", userId);
       store.complete(doneRun.id, { "index.html": "<html></html>" });
       const published = await publishRun(port, cookie, doneRun.id);
       expect(published.status).toBe(201);
@@ -77,36 +87,80 @@ describe("projectRoutes", () => {
   it("serves manage pages with edit permissions", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("manage app");
-    store.complete(run.id, { "index.html": "<html></html>" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("manage app", userId);
+      store.complete(run.id, { "index.html": "<html></html>" });
+
       const published = await publishRun(port, cookie, run.id, "Manage App");
       const { project } = (await published.json()) as { project: { editToken: string } };
 
       const anonymous = await fetch(`http://127.0.0.1:${port}/api/projects/manage/${project.editToken}`);
       expect(anonymous.status).toBe(200);
-      expect((await anonymous.json()).canEdit).toBe(false);
+      const anonymousJson = (await anonymous.json()) as { canEdit: boolean; project: { editToken?: string } };
+      expect(anonymousJson.canEdit).toBe(false);
+      expect(anonymousJson.project.editToken).toBeUndefined();
 
       const owner = await fetch(`http://127.0.0.1:${port}/api/projects/manage/${project.editToken}`, {
         headers: jsonHeaders(cookie)
       });
-      expect((await owner.json()).canEdit).toBe(true);
+      const ownerJson = (await owner.json()) as { canEdit: boolean; project: { editToken?: string } };
+      expect(ownerJson.canEdit).toBe(true);
+      expect(ownerJson.project.editToken).toBeUndefined();
 
       const missing = await fetch(`http://127.0.0.1:${port}/api/projects/manage/missing-token`);
       expect(missing.status).toBe(404);
     });
   });
 
+  it("returns forbidden when publishing another user's run", async () => {
+    const store = new RunStore();
+    const { app } = createTestApp(store);
+
+    await withServer(app, async (port) => {
+      const owner = await registerAndLogin(port, `publish_owner_${port}`);
+      const other = await registerAndLogin(port, `publish_other_${port}`);
+      const run = store.create("shared run", owner.userId);
+      store.complete(run.id, { "index.html": "<html></html>" });
+
+      const res = await publishRun(port, other.cookie, run.id);
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it("returns forbidden when saving a version from another user's run", async () => {
+    const store = new RunStore();
+    const { app } = createTestApp(store);
+
+    await withServer(app, async (port) => {
+      const owner = await registerAndLogin(port, `save_owner_${port}`);
+      const other = await registerAndLogin(port, `save_other_${port}`);
+      const ownerRun = store.create("owner run", owner.userId);
+      store.complete(ownerRun.id, { "index.html": "v1" });
+      const published = await publishRun(port, owner.cookie, ownerRun.id);
+      const { project } = (await published.json()) as { project: { id: string } };
+      const otherRun = store.create("other run", other.userId);
+      store.complete(otherRun.id, { "index.html": "v2" });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/projects/${project.id}/versions`, {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie),
+        body: JSON.stringify({ runId: otherRun.id })
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
   it("saves new versions from completed runs", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const initialRun = store.create("initial");
-    store.complete(initialRun.id, { "index.html": "v1" });
-    const updateRun = store.create("update");
-    store.complete(updateRun.id, { "index.html": "v2" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const initialRun = store.create("initial", userId);
+      store.complete(initialRun.id, { "index.html": "v1" });
+      const updateRun = store.create("update", userId);
+      store.complete(updateRun.id, { "index.html": "v2" });
+
       const published = await publishRun(port, cookie, initialRun.id);
       const { project } = (await published.json()) as { project: { id: string } };
 
@@ -124,7 +178,7 @@ describe("projectRoutes", () => {
       });
       expect(invalidRun.status).toBe(400);
 
-      const notReady = store.create("still running");
+      const notReady = store.create("still running", userId);
       const badRun = await fetch(`http://127.0.0.1:${port}/api/projects/${project.id}/versions`, {
         method: "POST",
         headers: jsonHeaders(cookie),
@@ -145,10 +199,11 @@ describe("projectRoutes", () => {
   it("reverts and deletes projects via owner routes", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("revert app");
-    store.complete(run.id, { "index.html": "v1" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("revert app", userId);
+      store.complete(run.id, { "index.html": "v1" });
+
       const published = await publishRun(port, cookie, run.id);
       const { project } = (await published.json()) as { project: { id: string; editToken: string } };
       const detail = await fetch(`http://127.0.0.1:${port}/api/projects/${project.id}`, {
@@ -187,10 +242,11 @@ describe("projectRoutes", () => {
   it("supports manage revert and delete when authenticated as owner", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("manage revert");
-    store.complete(run.id, { "index.html": "v1" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("manage revert", userId);
+      store.complete(run.id, { "index.html": "v1" });
+
       const published = await publishRun(port, cookie, run.id, "Manage Revert");
       const { project } = (await published.json()) as { project: { id: string; editToken: string } };
       const detail = await fetch(`http://127.0.0.1:${port}/api/projects/${project.id}`, {
@@ -224,12 +280,12 @@ describe("projectRoutes", () => {
   it("forbids cross-user project access and maps project errors", async () => {
     const store = new RunStore();
     const { app, services } = createTestApp(store);
-    const run = store.create("shared");
-    store.complete(run.id, { "index.html": "v1" });
 
     await withServer(app, async (port) => {
       const owner = await registerAndLogin(port, "owner");
       const other = await registerAndLogin(port, "other");
+      const run = store.create("shared", owner.userId);
+      store.complete(run.id, { "index.html": "v1" });
       const published = await publishRun(port, owner.cookie, run.id);
       const { project } = (await published.json()) as { project: { id: string } };
 
@@ -254,14 +310,14 @@ describe("projectRoutes", () => {
   it("returns forbidden when saving versions for another user's project", async () => {
     const store = new RunStore();
     const { app } = createTestApp(store);
-    const run = store.create("owner only");
-    store.complete(run.id, { "index.html": "v1" });
-    const updateRun = store.create("update forbidden");
-    store.complete(updateRun.id, { "index.html": "v2" });
 
     await withServer(app, async (port) => {
       const owner = await registerAndLogin(port, "owner2");
       const other = await registerAndLogin(port, "other2");
+      const run = store.create("owner only", owner.userId);
+      store.complete(run.id, { "index.html": "v1" });
+      const updateRun = store.create("update forbidden", other.userId);
+      store.complete(updateRun.id, { "index.html": "v2" });
       const published = await publishRun(port, owner.cookie, run.id);
       const { project } = (await published.json()) as { project: { id: string } };
 
@@ -277,14 +333,14 @@ describe("projectRoutes", () => {
   it("returns forbidden for cross-user revert and delete operations", async () => {
     const store = new RunStore();
     const { app, services } = createTestApp(store);
-    const run = store.create("forbidden ops");
-    store.complete(run.id, { "index.html": "v1" });
-    const updateRun = store.create("forbidden save");
-    store.complete(updateRun.id, { "index.html": "v2" });
 
     await withServer(app, async (port) => {
       const owner = await registerAndLogin(port, "owner3");
       const other = await registerAndLogin(port, "other3");
+      const run = store.create("forbidden ops", owner.userId);
+      store.complete(run.id, { "index.html": "v1" });
+      const updateRun = store.create("forbidden save", owner.userId);
+      store.complete(updateRun.id, { "index.html": "v2" });
       const published = await publishRun(port, owner.cookie, run.id);
       const { project } = (await published.json()) as { project: { id: string; editToken: string } };
       const detail = await fetch(`http://127.0.0.1:${port}/api/projects/${project.id}`, {
@@ -365,6 +421,36 @@ describe("projectRoutes", () => {
       });
       expect(deleteServerError.status).toBe(500);
     });
+  });
+
+  it("rate limits manage project lookups", async () => {
+    let now = 0;
+    const guard = createManageRateLimitGuard(1, 60_000, () => now);
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      send: vi.fn(),
+      setHeader: vi.fn()
+    } as unknown as import("express").Response;
+    const next = vi.fn();
+    const req = { ip: "127.0.0.1", socket: {} } as import("express").Request;
+
+    guard(req, res, next);
+    guard(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(res.status).toHaveBeenCalledWith(429);
+
+    now = 60_001;
+    guard(req, res, next);
+    expect(next).toHaveBeenCalledTimes(2);
+
+    const socketOnly = { socket: { remoteAddress: "socket-client" } } as import("express").Request;
+    guard(socketOnly, res, next);
+    expect(next).toHaveBeenCalledTimes(3);
+
+    const unknownClient = { socket: {} } as import("express").Request;
+    guard(unknownClient, res, next);
+    expect(next).toHaveBeenCalledTimes(4);
   });
 });
 

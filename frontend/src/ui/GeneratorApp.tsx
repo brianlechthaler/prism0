@@ -67,16 +67,17 @@ export function formatPreviewRuntimeError(error: PreviewRuntimeError): string {
   return [error.message, error.stack, location].filter(Boolean).join("\n");
 }
 
-function buildPreviewErrorReporter(runId: string): string {
+function buildPreviewErrorReporter(runId: string, targetOrigin: string): string {
   return `<script>
 (function () {
   var runId = ${JSON.stringify(runId)};
+  var targetOrigin = ${JSON.stringify(targetOrigin)};
   function send(message, detail) {
     window.parent.postMessage(Object.assign({
       type: ${JSON.stringify(PREVIEW_ERROR_MESSAGE_TYPE)},
       runId: runId,
       message: message || "Generated app crashed"
-    }, detail || {}), "*");
+    }, detail || {}), targetOrigin);
   }
 
   window.addEventListener("error", function (event) {
@@ -113,12 +114,13 @@ export function shouldSubmitIdeaOnKeyDown(event: {
 
 export function withPreviewErrorReporter(
   files: Record<string, string>,
-  runId: string
+  runId: string,
+  targetOrigin = ""
 ): Record<string, string> {
   const html = files["index.html"];
   if (!html || html.includes(PREVIEW_ERROR_MESSAGE_TYPE)) return files;
 
-  const reporter = buildPreviewErrorReporter(runId);
+  const reporter = buildPreviewErrorReporter(runId, targetOrigin);
   const insertionPoint = /<\/head>/i.test(html)
     ? "</head>"
     : /<\/body>/i.test(html)
@@ -188,6 +190,7 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (!isPreviewRuntimeError(event.data)) return;
       if (state.kind !== "ready" || event.data.runId !== state.runId) return;
       setPreviewError(event.data);
@@ -214,7 +217,9 @@ export function GeneratorApp({ projectId }: GeneratorAppProps) {
     if (!runId || !sourceFiles) return undefined;
 
     const files: Record<string, string> = {};
-    for (const [key, value] of Object.entries(withPreviewErrorReporter(sourceFiles, runId))) {
+    for (const [key, value] of Object.entries(
+      withPreviewErrorReporter(sourceFiles, runId, window.location.origin)
+    )) {
       files[`/${key}`] = value;
     }
     return files;

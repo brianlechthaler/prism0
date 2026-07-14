@@ -132,10 +132,10 @@ describe("useAuth", () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    await expect(result.current.register("new-user", undefined, "password123")).resolves.toEqual({});
+    await expect(result.current.register("new-user", undefined, "securepass12")).resolves.toEqual({});
     expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/register", {
       method: "POST",
-      json: { username: "new-user", password: "password123" }
+      json: { username: "new-user", password: "securepass12" }
     });
   });
 
@@ -149,7 +149,7 @@ describe("useAuth", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await expect(
-      result.current.register("new-user", "new@example.com", "password123")
+      result.current.register("new-user", "new@example.com", "securepass12")
     ).resolves.toEqual({ verificationToken: "dev-token" });
   });
 
@@ -164,7 +164,7 @@ describe("useAuth", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await expect(
-      result.current.register("new-user", "new@example.com", "password123")
+      result.current.register("new-user", "new@example.com", "securepass12")
     ).rejects.toThrow("Username taken");
   });
 

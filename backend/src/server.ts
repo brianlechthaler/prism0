@@ -15,6 +15,7 @@ import { parseCliArgs } from "./parseArgs.js";
 import { ProjectStore } from "./projectStore.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
 import { shutdownOpencode } from "./opencodeService.js";
+import { hostedContentSecurityPolicy, spaContentSecurityPolicy } from "./security.js";
 import { registerRoutes } from "./routes.js";
 import { RunStore } from "./runStore.js";
 
@@ -60,9 +61,9 @@ export function createApp(
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   registerAuthRoutes(app, services.auth, services.projects, services.history, config);
-  registerProjectRoutes(app, services.projects, store, config.authEnabled);
+  registerProjectRoutes(app, services.projects, store, config.authEnabled, config.authEmailEnabled);
   registerHostingRoutes(app, services.projects);
-  registerRoutes(app, config, store, { history: services.history });
+  registerRoutes(app, config, store, { history: services.history, projects: services.projects });
 
   const staticDir = path.resolve(__dirname, "../../frontend/dist");
   app.use(express.static(staticDir));
@@ -92,7 +93,7 @@ export function resolveCorsOrigins(origin: string): string | string[] {
 }
 
 export function securityHeaders(
-  _req: express.Request,
+  req: express.Request,
   res: express.Response,
   next: express.NextFunction
 ): void {
@@ -100,6 +101,14 @@ export function securityHeaders(
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (req.path.startsWith("/h/")) {
+    res.setHeader("Content-Security-Policy", hostedContentSecurityPolicy());
+  } else if (!req.path.startsWith("/api/")) {
+    res.setHeader("Content-Security-Policy", spaContentSecurityPolicy());
+  }
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
   next();
 }
 

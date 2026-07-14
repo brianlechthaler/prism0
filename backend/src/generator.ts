@@ -12,6 +12,7 @@ import { parseGeneratedResponse } from "./parseGenerated.js";
 import { MAX_PARSE_ATTEMPTS, MAX_VALIDATION_ATTEMPTS } from "./prompts.js";
 import { RunPausedError, RunStoppedError, throwIfAborted } from "./runControl.js";
 import type { RunStore } from "./runStore.js";
+import { redactUrlForLogs, sanitizeClientError } from "./security.js";
 import type {
   GeneratedProject,
   LlmCompletionUsage,
@@ -369,7 +370,7 @@ export async function runGeneration(
     }
     store.appendLog(
       runId,
-      `[${timestamp()}] Using model ${selectedModel || config.openaiModel} at ${config.openaiBaseUrl}`
+      `[${timestamp()}] Using model ${selectedModel || config.openaiModel} at ${redactUrlForLogs(config.openaiBaseUrl)}`
     );
     store.appendLog(
       runId,
@@ -1106,7 +1107,7 @@ function failRun(
   options: GenerationOptions,
   tracker: RunUsageTracker
 ): void {
-  store.fail(runId, message);
+  store.fail(runId, sanitizeClientError(message));
   options.hooks?.onFail?.(runId, store.get(runId)?.usage ?? tracker.snapshot());
 }
 

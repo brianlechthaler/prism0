@@ -4,6 +4,7 @@ import { createGenerationGuard, isRepairableSourceRun, projectFromSourceRun, rou
 import { RunStore } from "../src/runStore.js";
 import {
   createTestApp,
+  registerAndLogin,
   testConfig as config,
   withAuthedServer,
   withServer
@@ -85,10 +86,11 @@ describe("registerRoutes", () => {
 
   it("creates runs and serves project downloads", async () => {
     const { app, store } = createTestApp();
-    const run = store.create("make app");
-    store.complete(run.id, { "index.html": "<html></html>" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("make app", userId);
+      store.complete(run.id, { "index.html": "<html></html>" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/project/${run.id}/download`, {
         headers: authHeaders(cookie)
       });
@@ -107,11 +109,33 @@ describe("registerRoutes", () => {
     });
   });
 
+  it("rejects cross-user run access", async () => {
+    const { app, store } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const userA = await registerAndLogin(port, "userA");
+      const userB = await registerAndLogin(port, "userB");
+      const run = store.create("make app", userA.userId);
+      store.complete(run.id, { "index.html": "<html></html>" });
+
+      const sseRes = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/events`, {
+        headers: authHeaders(userB.cookie)
+      });
+      expect(sseRes.status).toBe(403);
+
+      const downloadRes = await fetch(`http://127.0.0.1:${port}/api/project/${run.id}/download`, {
+        headers: authHeaders(userB.cookie)
+      });
+      expect(downloadRes.status).toBe(403);
+    });
+  });
+
   it("unsubscribes when the SSE client disconnects", async () => {
     const { app, store } = createTestApp();
-    const run = store.create("make app");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("make app", userId);
+
       const controller = new AbortController();
       const response = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/events`, {
         headers: authHeaders(cookie),
@@ -127,9 +151,10 @@ describe("registerRoutes", () => {
 
   it("streams run events over SSE", async () => {
     const { app, store } = createTestApp();
-    const run = store.create("make app");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("make app", userId);
+
       const response = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/events`, {
         headers: authHeaders(cookie)
       });
@@ -180,11 +205,12 @@ describe("registerRoutes", () => {
       .spyOn(await import("../src/generator.js"), "resumeRun")
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp();
-    const run = store.create("make app");
-    store.setStatus(run.id, "running");
-    store.attachAbortController(run.id);
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("make app", userId);
+      store.setStatus(run.id, "running");
+      store.attachAbortController(run.id);
+
       const stopRes = await fetch(`http://127.0.0.1:${port}/api/generate/${run.id}/stop`, {
         method: "POST",
         headers: authHeaders(cookie)
@@ -192,7 +218,7 @@ describe("registerRoutes", () => {
       expect(stopRes.status).toBe(200);
       expect(await stopRes.json()).toEqual({ runId: run.id, status: "stopping" });
 
-      const pauseRun = store.create("pause");
+      const pauseRun = store.create("pause", userId);
       store.setStatus(pauseRun.id, "running");
       store.attachAbortController(pauseRun.id);
       const pauseRes = await fetch(`http://127.0.0.1:${port}/api/generate/${pauseRun.id}/pause`, {
@@ -218,10 +244,11 @@ describe("registerRoutes", () => {
 
   it("returns control errors for inactive or missing runs", async () => {
     const { app, store } = createTestApp();
-    const doneRun = store.create("done");
-    store.complete(doneRun.id, { "index.html": "<html/>" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const doneRun = store.create("done", userId);
+      store.complete(doneRun.id, { "index.html": "<html/>" });
+
       const headers = authHeaders(cookie);
       expect(
         (await fetch(`http://127.0.0.1:${port}/api/generate/missing/stop`, { method: "POST", headers }))
@@ -323,10 +350,11 @@ describe("registerRoutes", () => {
   it("rejects YOLO follow-up requests when YOLO mode is disabled", async () => {
     vi.spyOn(await import("../src/generator.js"), "runFollowUp").mockResolvedValue(undefined);
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -396,9 +424,10 @@ describe("registerRoutes", () => {
 
   it("rejects new generation requests when active capacity is reached", async () => {
     const { app, store } = createTestApp(new RunStore(), { ...config, maxActiveRuns: 1 });
-    store.create("already running");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      store.create("already running", userId);
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -414,10 +443,11 @@ describe("registerRoutes", () => {
       .spyOn(await import("../src/generator.js"), "runRuntimeRepair")
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -447,17 +477,18 @@ describe("registerRoutes", () => {
       .spyOn(await import("../src/generator.js"), "runFollowUp")
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.complete(
-      sourceRun.id,
-      {
-        "index.html": "<html></html>",
-        "index.js": "export const x = 1;"
-      },
-      "A tiny counter app"
-    );
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(
+        sourceRun.id,
+        {
+          "index.html": "<html></html>",
+          "index.js": "export const x = 1;"
+        },
+        "A tiny counter app"
+      );
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -499,10 +530,11 @@ describe("registerRoutes", () => {
 
   it("rejects invalid follow-up payloads", async () => {
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -514,10 +546,11 @@ describe("registerRoutes", () => {
 
   it("rejects unconfigured follow-up models", async () => {
     const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
-    const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, { "index.html": "<html></html>" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -530,9 +563,10 @@ describe("registerRoutes", () => {
 
   it("rejects follow-up runs when the project is not ready", async () => {
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -557,10 +591,11 @@ describe("registerRoutes", () => {
 
   it("rejects invalid runtime repair payloads", async () => {
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -572,10 +607,11 @@ describe("registerRoutes", () => {
 
   it("rejects unconfigured runtime repair models", async () => {
     const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
-    const sourceRun = store.create("make app");
-    store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -588,9 +624,10 @@ describe("registerRoutes", () => {
 
   it("rejects runtime repair when the project is not ready", async () => {
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -605,11 +642,12 @@ describe("registerRoutes", () => {
       .spyOn(await import("../src/generator.js"), "runValidationRepair")
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "broken();" });
-    store.fail(sourceRun.id, "lint still failing");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "broken();" });
+      store.fail(sourceRun.id, "lint still failing");
+
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
@@ -652,11 +690,12 @@ describe("registerRoutes", () => {
 
   it("rejects invalid validation repair payloads", async () => {
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
-    store.fail(sourceRun.id, "lint still failing");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
+      store.fail(sourceRun.id, "lint still failing");
+
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
@@ -671,11 +710,12 @@ describe("registerRoutes", () => {
 
   it("rejects unconfigured validation repair models", async () => {
     const { app, store } = createTestApp(new RunStore(), { ...config, modelPickerEnabled: true });
-    const sourceRun = store.create("make app");
-    store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
-    store.fail(sourceRun.id, "lint still failing");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.setFiles(sourceRun.id, { "index.html": "<html></html>" });
+      store.fail(sourceRun.id, "lint still failing");
+
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
@@ -691,9 +731,10 @@ describe("registerRoutes", () => {
 
   it("rejects validation repair when the project is not ready", async () => {
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+
       const res = await fetch(
         `http://127.0.0.1:${port}/api/generate/${sourceRun.id}/validation-fix`,
         {
@@ -711,11 +752,12 @@ describe("registerRoutes", () => {
       .spyOn(await import("../src/generator.js"), "runRuntimeRepair")
       .mockResolvedValue(undefined);
     const { app, store } = createTestApp();
-    const sourceRun = store.create("make app");
-    store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
-    store.fail(sourceRun.id, "runtime repair failed");
 
-    await withAuthedServer(app, async (port, { cookie }) => {
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.setFiles(sourceRun.id, { "index.html": "<html></html>", "index.js": "throw new Error();" });
+      store.fail(sourceRun.id, "runtime repair failed");
+
       const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/fix`, {
         method: "POST",
         headers: authHeaders(cookie),
@@ -758,6 +800,103 @@ describe("registerRoutes", () => {
       });
       const { runId } = (await res.json()) as { runId: string };
       expect(services.history.getByRunId(runId)?.status).toBe("error");
+    });
+  });
+
+  it("rejects generation requests for foreign project ids", async () => {
+    const { app } = createTestApp();
+
+    await withAuthedServer(app, async (port, { cookie }) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate`, {
+        method: "POST",
+        headers: authHeaders(cookie),
+        body: JSON.stringify({
+          idea: "make a counter app",
+          projectId: crypto.randomUUID()
+        })
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it("rejects follow-up requests for foreign project ids", async () => {
+    const { app, store } = createTestApp();
+
+    await withServer(app, async (port) => {
+      const owner = await registerAndLogin(port, `follow_owner_${port}`);
+      const other = await registerAndLogin(port, `follow_other_${port}`);
+      const sourceRun = store.create("make app", owner.userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>" });
+      const published = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+        method: "POST",
+        headers: authHeaders(owner.cookie),
+        body: JSON.stringify({ runId: sourceRun.id, name: "Follow-up App" })
+      });
+      const { project } = (await published.json()) as { project: { id: string } };
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: authHeaders(other.cookie),
+        body: JSON.stringify({ prompt: "add dark mode", projectId: project.id })
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it("rejects follow-up requests when the caller owns the run but not the project", async () => {
+    const { app, store } = createTestApp();
+
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>" });
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: authHeaders(cookie),
+        body: JSON.stringify({ prompt: "add dark mode", projectId: crypto.randomUUID() })
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it("accepts follow-up requests with owned project ids", async () => {
+    const followUpSpy = vi
+      .spyOn(await import("../src/generator.js"), "runFollowUp")
+      .mockResolvedValue(undefined);
+    const { app, store } = createTestApp();
+
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const sourceRun = store.create("make app", userId);
+      store.complete(sourceRun.id, { "index.html": "<html></html>" });
+      const published = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+        method: "POST",
+        headers: authHeaders(cookie),
+        body: JSON.stringify({ runId: sourceRun.id, name: "Follow-up App" })
+      });
+      const { project } = (await published.json()) as { project: { id: string } };
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/generate/${sourceRun.id}/follow-up`, {
+        method: "POST",
+        headers: authHeaders(cookie),
+        body: JSON.stringify({ prompt: "add dark mode", projectId: project.id })
+      });
+      expect(res.status).toBe(200);
+      expect(followUpSpy).toHaveBeenCalled();
+    });
+  });
+
+  it("returns not ready for incomplete project downloads", async () => {
+    const { app, store } = createTestApp();
+
+    await withAuthedServer(app, async (port, { cookie, userId }) => {
+      const run = store.create("make app", userId);
+      store.setStatus(run.id, "running");
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/project/${run.id}/download`, {
+        headers: authHeaders(cookie)
+      });
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe("Project not ready");
     });
   });
 });

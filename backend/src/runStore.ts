@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sanitizeClientError } from "./security.js";
 import type {
   GenerationRun,
   RunCheckpoint,
@@ -15,6 +16,7 @@ function emptyStreams(): GenerationRun["streams"] {
 }
 
 type InternalRun = GenerationRun & {
+  ownerUserId?: string;
   subscribers: Set<Subscriber>;
   createdAt: number;
   updatedAt: number;
@@ -36,7 +38,7 @@ export class RunStore {
     this.now = options.now ?? Date.now;
   }
 
-  create(idea: string): GenerationRun {
+  create(idea: string, ownerUserId?: string): GenerationRun {
     const id = randomUUID();
     const now = this.now();
     const run: InternalRun = {
@@ -46,6 +48,7 @@ export class RunStore {
       logs: [],
       streams: emptyStreams(),
       files: {},
+      ownerUserId,
       subscribers: new Set(),
       createdAt: now,
       updatedAt: now
@@ -58,6 +61,16 @@ export class RunStore {
   get(id: string): GenerationRun | undefined {
     const run = this.runs.get(id);
     return run ? this.snapshot(run) : undefined;
+  }
+
+  isOwnedBy(id: string, userId: string | undefined): boolean {
+    const run = this.runs.get(id);
+    if (!run?.ownerUserId) return false;
+    return run.ownerUserId === userId;
+  }
+
+  getOwnerUserId(id: string): string | undefined {
+    return this.runs.get(id)?.ownerUserId;
   }
 
   activeCount(): number {
@@ -249,7 +262,7 @@ export class RunStore {
     const repairable = Object.keys(run.files).length > 0;
     return {
       type: "error",
-      message: run.error || "Unknown error",
+      message: sanitizeClientError(run.error || "Unknown error"),
       runId: run.id,
       ...(repairable ? { files: { ...run.files }, repairable: true } : {})
     };

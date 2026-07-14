@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PrismDatabase } from "./db.js";
+import { normalizeProjectFiles } from "./fileSafety.js";
 import { randomSlug, randomToken } from "./crypto.js";
 
 export type ProjectVersion = {
@@ -58,6 +59,7 @@ export class ProjectStore {
       throw new ProjectError("Project has no files to publish");
     }
 
+    const normalizedFiles = normalizeProjectFiles(input.files);
     const id = randomUUID();
     const slug = this.createUniqueSlug();
     const editToken = randomToken(24);
@@ -73,7 +75,7 @@ export class ProjectStore {
     const version = this.insertVersion({
       projectId: id,
       versionNumber: 1,
-      files: input.files,
+      files: normalizedFiles,
       idea: input.idea ?? null,
       runId: input.runId ?? null,
       createdAt
@@ -102,10 +104,11 @@ export class ProjectStore {
       .get(input.projectId) as { max_version: number | null };
     const versionNumber = (latest.max_version ?? 0) + 1;
     const createdAt = this.now();
+    const normalizedFiles = normalizeProjectFiles(input.files);
     const version = this.insertVersion({
       projectId: input.projectId,
       versionNumber,
-      files: input.files,
+      files: normalizedFiles,
       idea: input.idea ?? null,
       runId: input.runId ?? null,
       createdAt

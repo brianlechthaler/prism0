@@ -1,44 +1,31 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const scryptSyncMock = vi.hoisted(() => vi.fn<typeof import("node:crypto").scryptSync>());
-
-vi.mock("node:crypto", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:crypto")>();
-  return {
-    ...actual,
-    scryptSync: ((password, salt, keylen, options) => {
-      const mocked = scryptSyncMock(password, salt, keylen, options);
-      if (mocked) return mocked;
-      return actual.scryptSync(password, salt, keylen, options);
-    }) as typeof actual.scryptSync
-  };
-});
-
-import { hashPassword, randomSlug, randomToken, verifyPassword } from "../src/crypto.js";
+import { describe, expect, it } from "vitest";
+import { hashSessionToken, hashPassword, randomSlug, randomToken, verifyPassword } from "../src/crypto.js";
 
 describe("crypto", () => {
-  afterEach(() => {
-    scryptSyncMock.mockReset();
-  });
-
-  it("hashes and verifies passwords", () => {
-    const stored = hashPassword("secret-password");
+  it("hashes and verifies passwords", async () => {
+    const stored = await hashPassword("secret-password");
     expect(stored).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
-    expect(verifyPassword("secret-password", stored)).toBe(true);
-    expect(verifyPassword("wrong-password", stored)).toBe(false);
+    expect(await verifyPassword("secret-password", stored)).toBe(true);
+    expect(await verifyPassword("wrong-password", stored)).toBe(false);
   });
 
-  it("rejects malformed stored password hashes", () => {
-    expect(verifyPassword("secret-password", "not-valid")).toBe(false);
-    expect(verifyPassword("secret-password", "abc:")).toBe(false);
-    expect(verifyPassword("secret-password", ":def")).toBe(false);
+  it("rejects malformed stored password hashes", async () => {
+    expect(await verifyPassword("secret-password", "not-valid")).toBe(false);
+    expect(await verifyPassword("secret-password", "abc:")).toBe(false);
+    expect(await verifyPassword("secret-password", ":def")).toBe(false);
   });
 
-  it("rejects stored hashes with mismatched digest length", () => {
-    const stored = hashPassword("secret-password");
-    const [saltHex, hashHex] = stored.split(":");
-    scryptSyncMock.mockReturnValueOnce(Buffer.from([1, 2, 3]));
-    expect(verifyPassword("secret-password", `${saltHex}:${hashHex}`)).toBe(false);
+  it("rejects stored hashes with mismatched digest length", async () => {
+    const stored = await hashPassword("secret-password");
+    const [saltHex] = stored.split(":");
+    expect(await verifyPassword("secret-password", `${saltHex}:ab`)).toBe(false);
+    expect(await verifyPassword("secret-password", `${saltHex}:${"00".repeat(63)}`)).toBe(false);
+  });
+
+  it("hashes session tokens deterministically", () => {
+    const token = "abc123";
+    expect(hashSessionToken(token)).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashSessionToken(token)).toBe(hashSessionToken(token));
   });
 
   it("generates random tokens and slugs", () => {

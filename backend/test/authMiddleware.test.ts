@@ -8,7 +8,9 @@ import {
   createAuthGuard,
   readSessionCookie,
   requireAuth,
+  requireVerifiedEmail,
   SESSION_COOKIE,
+  SESSION_COOKIE_PATH,
   setSessionCookie,
   type AuthenticatedRequest
 } from "../src/authMiddleware.js";
@@ -59,13 +61,13 @@ describe("authMiddleware", () => {
     setSessionCookie(res, "token-value", 5000);
     expect(append).toHaveBeenCalledWith(
       "Set-Cookie",
-      `${SESSION_COOKIE}=token-value; HttpOnly; Path=/; SameSite=Lax; Max-Age=5`
+      `${SESSION_COOKIE}=token-value; HttpOnly; Path=${SESSION_COOKIE_PATH}; SameSite=Lax; Max-Age=5`
     );
 
     clearSessionCookie(res);
     expect(append).toHaveBeenLastCalledWith(
       "Set-Cookie",
-      `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`
+      `${SESSION_COOKIE}=; HttpOnly; Path=${SESSION_COOKIE_PATH}; SameSite=Lax; Max-Age=0`
     );
   });
 
@@ -77,19 +79,20 @@ describe("authMiddleware", () => {
     setSessionCookie(res, "token", 1000);
     clearSessionCookie(res);
     expect(append.mock.calls[0]?.[1]).toContain("Secure");
+    expect(append.mock.calls[0]?.[1]).toContain("SameSite=Strict");
     expect(append.mock.calls[1]?.[1]).toContain("Secure");
     vi.unstubAllEnvs();
   });
 
   it("attaches authenticated users and clears invalid sessions", async () => {
     const auth = createAuthService();
-    const { verificationToken } = auth.register({
+    const { verificationToken } = await auth.register({
       username: "middleware_user",
       email: "middleware@example.com",
-      password: "password123"
+      password: "securepass12"
     });
     auth.verifyEmail(verificationToken!);
-    const { sessionToken } = auth.login("middleware_user", "password123");
+    const { sessionToken } = await auth.login("middleware_user", "securepass12");
 
     const app = express();
     app.use(createAuthMiddleware(auth));
@@ -129,6 +132,53 @@ describe("authMiddleware", () => {
     const denied = await fetch(`http://127.0.0.1:${port}/protected`);
     expect(denied.status).toBe(401);
     expect(await denied.text()).toBe("Authentication required");
+
+    server.close();
+  });
+
+  it("skips email verification when email is disabled", async () => {
+    const app = express();
+    app.get("/verified-only", requireVerifiedEmail(false), (_req, res) => res.send("ok"));
+
+    const server = app.listen(0);
+    const port = (server.address() as { port: number }).port;
+    const res = await fetch(`http://127.0.0.1:${port}/verified-only`);
+    expect(res.status).toBe(200);
+    server.close();
+  });
+
+  it("requires a user before checking email verification", async () => {
+    const app = express();
+    app.get("/verified-only", requireVerifiedEmail(true), (_req, res) => res.send("ok"));
+
+    const server = app.listen(0);
+    const port = (server.address() as { port: number }).port;
+    const res = await fetch(`http://127.0.0.1:${port}/verified-only`);
+    expect(res.status).toBe(401);
+    server.close();
+  });
+
+
+  it("blocks unverified email users when verification is required", async () => {
+    const app = express();
+    app.get("/verified-only", (req, res, next) => {
+      (req as AuthenticatedRequest).user = {
+        id: "user-1",
+        username: "unverified_user",
+        email: "unverified@example.com",
+        emailVerified: false,
+        displayName: null,
+        createdAt: Date.now()
+      };
+      requireVerifiedEmail(true)(req, res, next);
+    }, (_req, res) => res.send("ok"));
+
+    const server = app.listen(0);
+    const port = (server.address() as { port: number }).port;
+
+    const denied = await fetch(`http://127.0.0.1:${port}/verified-only`);
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).toContain("not verified");
 
     server.close();
   });

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PrismDatabase } from "./db.js";
-import { hashPassword, randomToken, verifyPassword } from "./crypto.js";
+import { hashPassword, hashSessionToken, randomToken, verifyPassword } from "./crypto.js";
 import type { EmailSender } from "./email.js";
 import { buildVerificationEmail } from "./email.js";
+import { validatePassword } from "./security.js";
 
 export type PublicUser = {
   id: string;
@@ -51,11 +52,11 @@ export class AuthService {
     this.now = options.now ?? Date.now;
   }
 
-  register(input: {
+  async register(input: {
     username: string;
     email?: string;
     password: string;
-  }): { user: PublicUser; verificationToken?: string } {
+  }): Promise<{ user: PublicUser; verificationToken?: string }> {
     const username = input.username.trim();
     const email = this.emailEnabled ? (input.email?.trim().toLowerCase() ?? null) : null;
     if (!this.emailEnabled && input.email?.trim()) {
@@ -69,8 +70,9 @@ export class AuthService {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new AuthError("Invalid email address");
     }
-    if (password.length < 8) {
-      throw new AuthError("Password must be at least 8 characters");
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      throw new AuthError(passwordError);
     }
 
     const existingUsername = this.db
@@ -91,7 +93,7 @@ export class AuthService {
         `INSERT INTO users (id, username, email, email_verified, password_hash, display_name, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
       )
-      .run(id, username, email, emailVerified, hashPassword(password), createdAt, createdAt);
+      .run(id, username, email, emailVerified, await hashPassword(password), createdAt, createdAt);
 
     if (!email) {
       return { user: this.getPublicUser(id)! };
@@ -107,7 +109,7 @@ export class AuthService {
     };
   }
 
-  login(username: string, password: string): { user: PublicUser; sessionToken: string } {
+  async login(username: string, password: string): Promise<{ user: PublicUser; sessionToken: string }> {
     const row = this.db
       .prepare(
         `SELECT id, username, email, email_verified, password_hash, display_name, created_at
@@ -117,7 +119,7 @@ export class AuthService {
 
     if (
       !row ||
-      !verifyPassword(password, row.password_hash) ||
+      !(await verifyPassword(password, row.password_hash)) ||
       !this.isEmailVerificationSatisfied(row.email, row.email_verified)
     ) {
       throw new AuthError("Invalid username or password");
@@ -129,7 +131,7 @@ export class AuthService {
   }
 
   logout(sessionToken: string): void {
-    this.db.prepare("DELETE FROM sessions WHERE token = ?").run(sessionToken);
+    this.db.prepare("DELETE FROM sessions WHERE token = ?").run(hashSessionToken(sessionToken));
   }
 
   getUserBySession(sessionToken: string): PublicUser | undefined {
@@ -140,11 +142,11 @@ export class AuthService {
          JOIN users u ON u.id = s.user_id
          WHERE s.token = ?`
       )
-      .get(sessionToken) as (UserRow & { expires_at: number }) | undefined;
+      .get(hashSessionToken(sessionToken)) as (UserRow & { expires_at: number }) | undefined;
 
     if (!row) return undefined;
     if (row.expires_at <= this.now()) {
-      this.db.prepare("DELETE FROM sessions WHERE token = ?").run(sessionToken);
+      this.db.prepare("DELETE FROM sessions WHERE token = ?").run(hashSessionToken(sessionToken));
       return undefined;
     }
 
@@ -173,7 +175,7 @@ export class AuthService {
     return this.getPublicUser(row.user_id)!;
   }
 
-  resendVerification(username: string, password: string): { verificationToken?: string } {
+  async resendVerification(username: string, password: string): Promise<{ verificationToken?: string }> {
     this.requireEmailEnabled();
     const row = this.db
       .prepare("SELECT id, email, email_verified, password_hash FROM users WHERE username = ? COLLATE NOCASE")
@@ -181,7 +183,7 @@ export class AuthService {
       | { id: string; email: string | null; email_verified: number; password_hash: string }
       | undefined;
 
-    if (!row || !verifyPassword(password, row.password_hash)) {
+    if (!row || !(await verifyPassword(password, row.password_hash))) {
       throw new AuthError("Invalid username or password");
     }
     if (!row.email) throw new AuthError("No email address on this account");
@@ -204,7 +206,7 @@ export class AuthService {
     return this.getPublicUser(userId)!;
   }
 
-  changeEmail(userId: string, newEmail: string, password: string): PublicUser {
+  async changeEmail(userId: string, newEmail: string, password: string): Promise<PublicUser> {
     this.requireEmailEnabled();
     const email = newEmail.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -212,7 +214,7 @@ export class AuthService {
     }
 
     const user = this.getUserRecord(userId);
-    if (!verifyPassword(password, user.password_hash)) {
+    if (!(await verifyPassword(password, user.password_hash))) {
       throw new AuthError("Invalid password");
     }
 
@@ -238,22 +240,23 @@ export class AuthService {
     };
   }
 
-  changePassword(userId: string, currentPassword: string, newPassword: string): void {
-    if (newPassword.length < 8) throw new AuthError("Password must be at least 8 characters");
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) throw new AuthError(passwordError);
     const user = this.getUserRecord(userId);
-    if (!verifyPassword(currentPassword, user.password_hash)) {
+    if (!(await verifyPassword(currentPassword, user.password_hash))) {
       throw new AuthError("Invalid password");
     }
     const updatedAt = this.now();
     this.db
       .prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
-      .run(hashPassword(newPassword), updatedAt, userId);
+      .run(await hashPassword(newPassword), updatedAt, userId);
     this.db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
   }
 
-  deleteAccount(userId: string, password: string): void {
+  async deleteAccount(userId: string, password: string): Promise<void> {
     const user = this.getUserRecord(userId);
-    if (!verifyPassword(password, user.password_hash)) {
+    if (!(await verifyPassword(password, user.password_hash))) {
       throw new AuthError("Invalid password");
     }
     this.db.prepare("DELETE FROM users WHERE id = ?").run(userId);
@@ -274,7 +277,7 @@ export class AuthService {
     const expiresAt = createdAt + this.sessionTtlMs;
     this.db
       .prepare("INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-      .run(token, userId, expiresAt, createdAt);
+      .run(hashSessionToken(token), userId, expiresAt, createdAt);
     return token;
   }
 

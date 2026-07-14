@@ -6,6 +6,7 @@ import {
   clearSessionCookie,
   type AuthenticatedRequest,
   requireAuth,
+  requireVerifiedEmail,
   setSessionCookie
 } from "./authMiddleware.js";
 import type { AppConfig } from "./config.js";
@@ -18,7 +19,7 @@ const RegisterSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
     z.string().trim().email().max(254).optional()
   ),
-  password: z.string().min(8).max(200)
+  password: z.string().min(12).max(200)
 });
 
 const LoginSchema = z.object({
@@ -41,7 +42,7 @@ const ChangeEmailSchema = z.object({
 
 const ChangePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(200),
-  newPassword: z.string().min(8).max(200)
+  newPassword: z.string().min(12).max(200)
 });
 
 const PasswordConfirmSchema = z.object({
@@ -107,14 +108,14 @@ export function registerAuthRoutes(
     }
 
     try {
-      const result = auth.register(parsed.data);
+      const result = await auth.register(parsed.data);
       res.status(201).json(result);
     } catch (error) {
       handleAuthError(res, error);
     }
   });
 
-  app.post("/api/auth/login", authRateLimit, (req, res) => {
+  app.post("/api/auth/login", authRateLimit, async (req, res) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((issue) => issue.message).join("; "));
@@ -129,7 +130,7 @@ export function registerAuthRoutes(
     }
 
     try {
-      const result = auth.login(parsed.data.username, parsed.data.password);
+      const result = await auth.login(parsed.data.username, parsed.data.password);
       loginFailures.clear(parsed.data.username);
       setSessionCookie(res, result.sessionToken, config.sessionTtlMs);
       res.json({ user: result.user });
@@ -169,7 +170,7 @@ export function registerAuthRoutes(
     }
   });
 
-  app.post("/api/auth/resend-verification", authRateLimit, (req, res) => {
+  app.post("/api/auth/resend-verification", authRateLimit, async (req, res) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).send(parsed.error.issues.map((issue) => issue.message).join("; "));
@@ -177,7 +178,7 @@ export function registerAuthRoutes(
     }
 
     try {
-      const result = auth.resendVerification(parsed.data.username, parsed.data.password);
+      const result = await auth.resendVerification(parsed.data.username, parsed.data.password);
       res.json(result);
     } catch (error) {
       handleAuthError(res, error);
@@ -200,7 +201,7 @@ export function registerAuthRoutes(
     }
   });
 
-  app.post("/api/auth/change-email", requireAuth(), (req, res) => {
+  app.post("/api/auth/change-email", requireAuth(), async (req, res) => {
     const user = (req as AuthenticatedRequest).user!;
     const parsed = ChangeEmailSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -209,7 +210,7 @@ export function registerAuthRoutes(
     }
 
     try {
-      const updated = auth.changeEmail(user.id, parsed.data.email, parsed.data.password);
+      const updated = await auth.changeEmail(user.id, parsed.data.email, parsed.data.password);
       clearSessionCookie(res);
       res.json({ user: updated, requiresVerification: true });
     } catch (error) {
@@ -217,7 +218,7 @@ export function registerAuthRoutes(
     }
   });
 
-  app.post("/api/auth/change-password", requireAuth(), (req, res) => {
+  app.post("/api/auth/change-password", requireAuth(), async (req, res) => {
     const user = (req as AuthenticatedRequest).user!;
     const parsed = ChangePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -226,7 +227,7 @@ export function registerAuthRoutes(
     }
 
     try {
-      auth.changePassword(user.id, parsed.data.currentPassword, parsed.data.newPassword);
+      await auth.changePassword(user.id, parsed.data.currentPassword, parsed.data.newPassword);
       clearSessionCookie(res);
       res.json({ ok: true });
     } catch (error) {
@@ -234,7 +235,7 @@ export function registerAuthRoutes(
     }
   });
 
-  app.delete("/api/auth/account", requireAuth(), (req, res) => {
+  app.delete("/api/auth/account", requireAuth(), async (req, res) => {
     const user = (req as AuthenticatedRequest).user!;
     const parsed = PasswordConfirmSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -243,7 +244,7 @@ export function registerAuthRoutes(
     }
 
     try {
-      auth.deleteAccount(user.id, parsed.data.password);
+      await auth.deleteAccount(user.id, parsed.data.password);
       clearSessionCookie(res);
       res.json({ ok: true });
     } catch (error) {
@@ -251,7 +252,7 @@ export function registerAuthRoutes(
     }
   });
 
-  app.get("/api/dashboard", requireAuth(), (req, res) => {
+  app.get("/api/dashboard", requireAuth(), requireVerifiedEmail(config.authEmailEnabled), (req, res) => {
     const user = (req as AuthenticatedRequest).user!;
     res.json({
       user,

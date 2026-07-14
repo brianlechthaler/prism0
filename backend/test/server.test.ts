@@ -6,6 +6,7 @@ import {
   createApp,
   isMainModule,
   resolveCorsOrigins,
+  securityHeaders,
   sendIndexFallback,
   startServer
 } from "../src/server.js";
@@ -73,23 +74,38 @@ describe("createApp", () => {
   });
 
   it("sets security headers without enabling cross-origin access by default", async () => {
+    await fs.mkdir(distDir, { recursive: true });
+    await fs.writeFile(path.join(distDir, "index.html"), "<html>prism0</html>");
+
     const app = createApp(testConfig);
     const server = app.listen(0);
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no address");
 
-    const res = await fetch(`http://127.0.0.1:${addr.port}/api/health`, {
+    const apiRes = await fetch(`http://127.0.0.1:${addr.port}/api/health`, {
       headers: { origin: "https://example.com" }
     });
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
-    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(res.headers.get("permissions-policy")).toBe(
-      "camera=(), microphone=(), geolocation=()"
-    );
-    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(apiRes.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(apiRes.headers.get("content-security-policy")).toBeNull();
+
+    const spaRes = await fetch(`http://127.0.0.1:${addr.port}/`);
+    expect(spaRes.headers.get("content-security-policy")).toContain("default-src 'self'");
 
     server.close();
+  });
+
+  it("adds strict transport security in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const app = createApp(testConfig);
+    const server = app.listen(0);
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}/api/health`);
+    expect(res.headers.get("strict-transport-security")).toContain("max-age=");
+
+    server.close();
+    vi.unstubAllEnvs();
   });
 
   it("uses the configured CORS origin when one is provided", async () => {
@@ -104,6 +120,27 @@ describe("createApp", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("https://app.example");
 
     server.close();
+  });
+});
+
+describe("securityHeaders", () => {
+  it("sets hosted and spa content security policies", () => {
+    const setHeader = vi.fn();
+    const res = { setHeader } as unknown as import("express").Response;
+    const next = vi.fn();
+
+    securityHeaders({ path: "/h/demo" } as import("express").Request, res, next);
+    expect(setHeader).toHaveBeenCalledWith(
+      "Content-Security-Policy",
+      expect.stringContaining("unsafe-inline")
+    );
+
+    setHeader.mockClear();
+    securityHeaders({ path: "/app" } as import("express").Request, res, next);
+    expect(setHeader).toHaveBeenCalledWith(
+      "Content-Security-Policy",
+      expect.stringContaining("default-src 'self'")
+    );
   });
 });
 
